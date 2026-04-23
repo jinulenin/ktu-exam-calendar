@@ -25,15 +25,22 @@ def fetch_pdf_links():
     links = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        # Ignore SSL errors — KTU has certificate issues
+        context = browser.new_context(ignore_https_errors=True)
+        page = context.new_page()
 
         print("  Opening KTU timetable page in headless browser...")
-        page.goto(TIMETABLE_URL, timeout=60000, wait_until="networkidle")
+        try:
+            # domcontentloaded is faster and more reliable than networkidle
+            page.goto(TIMETABLE_URL, timeout=90000, wait_until="domcontentloaded")
+        except Exception as e:
+            print(f"  First load attempt failed ({e}), retrying with 'load'...")
+            page.goto(TIMETABLE_URL, timeout=90000, wait_until="load")
 
-        # Wait a bit more for any lazy-loaded content
-        page.wait_for_timeout(3000)
+        # Wait for JS-rendered content to appear
+        page.wait_for_timeout(5000)
 
-        # Grab every anchor whose href ends with .pdf
+        # Grab every anchor whose href contains .pdf
         anchors = page.eval_on_selector_all(
             "a",
             """els => els
@@ -43,7 +50,7 @@ def fetch_pdf_links():
         )
         links.extend(anchors)
 
-        # Also scan for links inside iframes if any
+        # Also scan inside iframes
         for frame in page.frames:
             if frame == page.main_frame:
                 continue
