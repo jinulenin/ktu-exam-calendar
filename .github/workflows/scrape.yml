@@ -41,10 +41,7 @@ jobs:
         run: python scraper/scraper.py
 
       - name: Commit updated data
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
-          git add data/exams.json data/pdf_hashes.json
-          git diff --staged --quiet || git commit -m "chore: update exam data $(date -u '+%Y-%m-%d %H:%M UTC')"
-          git push
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update exam data"
+          file_pattern: "data/exams.json data/pdf_hashes.json"
