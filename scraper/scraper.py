@@ -4,6 +4,7 @@ import hashlib
 import tempfile
 import re
 import warnings
+import base64
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,10 +33,43 @@ PDF_URL_PATTERNS = [
 ]
 
 
+def browser_fetch_json(page, url):
+    """Run fetch() inside the browser's JS context — uses the app's auth tokens."""
+    result = page.evaluate(f"""async () => {{
+        try {{
+            const resp = await fetch("{url}", {{credentials: "include"}});
+            if (!resp.ok) return null;
+            return await resp.json();
+        }} catch(e) {{ return null; }}
+    }}""")
+    return result
+
+
+def browser_fetch_pdf(page, url):
+    """Download a PDF as base64 from inside the browser's JS context."""
+    import base64
+    result = page.evaluate(f"""async () => {{
+        try {{
+            const resp = await fetch("{url}", {{credentials: "include"}});
+            if (!resp.ok) return null;
+            const ct = resp.headers.get("content-type") || "";
+            if (!ct.toLowerCase().includes("pdf")) return null;
+            const buf = await resp.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let bin = "";
+            bytes.forEach(b => bin += String.fromCharCode(b));
+            return btoa(bin);
+        }} catch(e) {{ return null; }}
+    }}""")
+    if result:
+        return base64.b64decode(result)
+    return None
+
+
 def fetch_all_timetable_pdfs():
     """
-    Opens KTU timetable in a headless browser, fetches ALL pages via the API
-    using the browser's authenticated session, and downloads all PDFs.
+    Opens KTU timetable, fetches all pages, finds working PDF URL, downloads all PDFs.
+    All API calls run inside the browser JS context so auth tokens are automatically included.
     Returns list of {url, name, fileName, pdf_bytes, meta}.
     """
     results = []
@@ -46,13 +80,14 @@ def fetch_all_timetable_pdfs():
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
 
+        # Intercept the first timetable response to get totalPages
         def handle_response(response):
             try:
                 ct = response.headers.get("content-type", "")
                 if "json" in ct and "anon/timetable" in response.url and "Weblogs" not in response.url:
                     data = response.json()
                     first_page_data.update(data)
-                    print(f"  Page 1 captured: {len(data.get('content', []))} entries, totalPages={data.get('totalPages')}")
+                    print(f"  Page 1: {len(data.get('content', []))} entries, totalPages={data.get('totalPages')}")
             except Exception:
                 pass
 
@@ -62,96 +97,88 @@ def fetch_all_timetable_pdfs():
         try:
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="domcontentloaded")
         except Exception as e:
-            print(f"  Retrying page load: {e}")
+            print(f"  Retrying: {e}")
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="load")
         page.wait_for_timeout(6000)
 
         if not first_page_data:
-            print("  No API data captured — page may not have loaded properly")
+            print("  No API data captured from page load")
             browser.close()
             return []
 
-        # Collect all entries across all pages
         all_entries = list(first_page_data.get("content", []))
         total_pages = first_page_data.get("totalPages", 1)
-        print(f"  Total pages: {total_pages} — fetching all...")
+        print(f"  Total pages: {total_pages} — fetching remaining pages via browser JS...")
 
+        # Fetch remaining pages by running fetch() inside the browser (has auth tokens)
         for page_num in range(1, total_pages):
-            try:
-                # Use context.request — same session as the browser, fully authenticated
-                resp = context.request.get(f"{KTU_API}?page={page_num}", timeout=30000)
-                if resp.ok:
-                    data = resp.json()
-                    entries = data.get("content", [])
-                    all_entries.extend(entries)
-                    print(f"  Page {page_num + 1}/{total_pages}: +{len(entries)} entries")
-                else:
-                    print(f"  Page {page_num + 1} failed with status {resp.status} — stopping pagination")
-                    break
-            except Exception as e:
-                print(f"  Page {page_num + 1} error: {e} — stopping pagination")
+            data = browser_fetch_json(page, f"{KTU_API}?page={page_num}")
+            if data:
+                entries = data.get("content", [])
+                all_entries.extend(entries)
+                print(f"  Page {page_num + 1}/{total_pages}: +{len(entries)} entries")
+            else:
+                print(f"  Page {page_num + 1} returned null — stopping")
                 break
 
-        print(f"  Total entries fetched: {len(all_entries)}")
+        print(f"  Total entries: {len(all_entries)}")
 
         if not all_entries:
             browser.close()
             return []
 
-        # Detect working PDF download URL using the first entry as a test
+        # Find working PDF download URL using browser JS fetch on first entry
         first = all_entries[0]
+        print(f"  Finding PDF URL for: {first.get('fileName')}")
         working_key = None
         working_template = None
 
-        print(f"  Testing PDF URL patterns for: {first.get('fileName')}")
         for key_field, template in PDF_URL_PATTERNS:
             key_val = first.get(key_field, "")
             if not key_val:
                 continue
             test_url = template.format(key_val)
-            try:
-                resp = context.request.get(test_url, timeout=15000)
-                ct = resp.headers.get("content-type", "")
-                print(f"  {test_url} → {resp.status} [{ct[:50]}]")
-                if resp.ok and "pdf" in ct.lower():
-                    working_key = key_field
-                    working_template = template
-                    print(f"  ✓ Working URL pattern: {template}")
-                    break
-            except Exception as e:
-                print(f"  {test_url} → ERROR: {e}")
+            pdf_bytes = browser_fetch_pdf(page, test_url)
+            if pdf_bytes:
+                working_key = key_field
+                working_template = template
+                print(f"  ✓ Working pattern: {template}")
+                # Save first PDF to results immediately
+                results.append({
+                    "url": test_url,
+                    "name": first.get("timeTableTitle") or first.get("fileName", ""),
+                    "fileName": first.get("fileName", ""),
+                    "pdf_bytes": pdf_bytes,
+                    "meta": first,
+                })
+                break
+            else:
+                print(f"  ✗ {test_url}")
 
         if not working_template:
-            print("  Could not determine PDF download URL pattern")
+            print("  No working PDF URL pattern found")
             browser.close()
             return []
 
-        # Download all PDFs using the confirmed pattern
-        print(f"\n  Downloading {len(all_entries)} PDFs...")
-        for entry in all_entries:
+        # Download remaining PDFs
+        print(f"  Downloading remaining {len(all_entries) - 1} PDFs...")
+        for entry in all_entries[1:]:
             key_val = entry.get(working_key, "")
             if not key_val:
                 continue
             url = working_template.format(key_val)
-            name = entry.get("timeTableTitle") or entry.get("title") or entry.get("fileName", "")
             file_name = entry.get("fileName", "")
+            name = entry.get("timeTableTitle") or entry.get("title") or file_name
 
-            try:
-                resp = context.request.get(url, timeout=60000)
-                ct = resp.headers.get("content-type", "")
-                if resp.ok and "pdf" in ct.lower():
-                    results.append({
-                        "url": url,
-                        "name": name,
-                        "fileName": file_name,
-                        "pdf_bytes": resp.body(),
-                        "meta": entry,
-                    })
-                    print(f"  ✓ {file_name}")
-                else:
-                    print(f"  ✗ {file_name} — {resp.status} {ct[:40]}")
-            except Exception as e:
-                print(f"  ✗ {file_name} — {e}")
+            pdf_bytes = browser_fetch_pdf(page, url)
+            if pdf_bytes:
+                results.append({
+                    "url": url, "name": name,
+                    "fileName": file_name, "pdf_bytes": pdf_bytes, "meta": entry,
+                })
+                print(f"  ✓ {file_name}")
+            else:
+                print(f"  ✗ {file_name}")
 
         browser.close()
 
