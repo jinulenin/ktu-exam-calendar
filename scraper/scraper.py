@@ -134,14 +134,28 @@ def fetch_all_timetable_pdfs():
         total_pages = first_page_data.get("totalPages", 1)
         print(f"  Page 1 loaded. Total pages: {total_pages}")
 
-        # Print page elements to understand UI structure
+        # Wait for the timetable table to actually render in DOM
+        print("  Waiting for table to render...")
+        for selector in ["table", "mat-table", "tr", ".cdk-row", "[mat-row]", "tbody tr", "mat-row"]:
+            try:
+                page.wait_for_selector(selector, timeout=8000)
+                print(f"  Table found via selector: '{selector}'")
+                break
+            except Exception:
+                pass
+
+        # Scroll down to ensure content is visible
+        page.evaluate("window.scrollTo(0, 600)")
+        page.wait_for_timeout(2000)
+
+        # Print ALL elements to understand full page structure
         elements = page.eval_on_selector_all(
-            "button, a, mat-icon, [role='button']",
-            "els => els.map(el => ({tag: el.tagName, text: el.textContent.trim().slice(0,40), cls: el.className.slice(0,60), aria: el.getAttribute('aria-label')||''}))"
+            "button, a, mat-icon, [role='button'], td, th, mat-cell, mat-header-cell",
+            "els => els.map(el => ({tag: el.tagName, text: el.textContent.trim().slice(0,50), cls: el.className.slice(0,70), aria: el.getAttribute('aria-label')||''}))"
         )
-        print(f"  Interactive elements on page ({len(elements)} total), first 25:")
-        for el in elements[:25]:
-            print(f"    {el['tag']} | text='{el['text']}' | aria='{el['aria']}' | class='{el['cls'][:40]}'")
+        print(f"\n  ALL interactive/table elements ({len(elements)} total):")
+        for el in elements:
+            print(f"    {el['tag']} | text='{el['text']}' | aria='{el['aria']}' | class='{el['cls'][:50]}'")
 
         # Try clicking what looks like a download/view button for the first row
         print("\n  Trying to click download/view buttons...")
