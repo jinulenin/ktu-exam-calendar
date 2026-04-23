@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KTU Exam Calendar</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f4f6fb;
+      --surface: #ffffff;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --accent: #ef4444;
+      --text: #1e293b;
+      --muted: #64748b;
+      --border: #e2e8f0;
+      --today-bg: #eff6ff;
+      --today-border: #2563eb;
+      --exam-dot: #ef4444;
+      --shadow: 0 1px 4px rgba(0,0,0,0.08);
+      --radius: 10px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--primary);
+      color: #fff;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.01em; }
+    header p  { font-size: 0.8rem; opacity: 0.8; margin-top: 2px; }
+    #last-updated { font-size: 0.75rem; opacity: 0.75; white-space: nowrap; }
+
+    /* ── Filters ── */
+    .filters {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .filters label { font-size: 0.8rem; color: var(--muted); font-weight: 500; }
+    .filters select {
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: var(--text);
+      background: var(--bg);
+      cursor: pointer;
+    }
+    .filters select:focus { outline: 2px solid var(--primary); }
+
+    /* ── Main layout ── */
+    main {
+      max-width: 1100px;
+      margin: 24px auto;
+      padding: 0 16px;
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 20px;
+    }
+    @media (max-width: 760px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    /* ── Calendar card ── */
+    .calendar-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .cal-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .cal-nav button {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      width: 32px; height: 32px;
+      cursor: pointer;
+      font-size: 1rem;
+      color: var(--muted);
+      transition: background 0.15s;
+    }
+    .cal-nav button:hover { background: var(--bg); color: var(--text); }
+    .cal-nav h2 { font-size: 1rem; font-weight: 600; }
+
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+    }
+    .cal-weekday {
+      text-align: center;
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--muted);
+      padding: 8px 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--border);
+    }
+    .cal-day {
+      min-height: 70px;
+      padding: 6px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      transition: background 0.12s;
+      position: relative;
+    }
+    .cal-day:nth-child(7n) { border-right: none; }
+    .cal-day:hover { background: var(--bg); }
+    .cal-day.empty { background: #fafafa; cursor: default; }
+    .cal-day.today {
+      background: var(--today-bg);
+      border: 2px solid var(--today-border) !important;
+    }
+    .cal-day.selected { background: #eff6ff; }
+    .cal-day.has-exam .day-num::after {
+      content: "";
+      display: block;
+      width: 6px; height: 6px;
+      background: var(--exam-dot);
+      border-radius: 50%;
+      margin: 2px auto 0;
+    }
+
+    .day-num {
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text);
+      text-align: center;
+      line-height: 1;
+    }
+    .cal-day.today .day-num { color: var(--primary); font-weight: 700; }
+    .cal-day.other-month .day-num { color: #c0c8d8; }
+
+    .exam-chips {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-top: 4px;
+    }
+    .exam-chip {
+      background: #fee2e2;
+      color: #b91c1c;
+      font-size: 0.62rem;
+      padding: 1px 5px;
+      border-radius: 4px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+    }
+
+    /* ── Detail panel ── */
+    .detail-panel {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      align-self: start;
+      position: sticky;
+      top: 20px;
+    }
+    .detail-panel h3 {
+      padding: 14px 18px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .detail-empty {
+      padding: 32px 18px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .detail-empty span { font-size: 2rem; display: block; margin-bottom: 8px; }
+
+    .exam-list { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .exam-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--bg);
+    }
+    .exam-item-name {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .exam-item-code {
+      display: inline-block;
+      background: #dbeafe;
+      color: #1e40af;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 4px;
+      margin-bottom: 6px;
+    }
+    .exam-meta { display: flex; flex-direction: column; gap: 3px; }
+    .exam-meta span { font-size: 0.78rem; color: var(--muted); }
+    .exam-meta strong { color: var(--text); }
+    .exam-note {
+      margin-top: 6px;
+      font-size: 0.75rem;
+      color: #92400e;
+      background: #fef3c7;
+      padding: 4px 8px;
+      border-radius: 5px;
+    }
+    .source-link {
+      font-size: 0.72rem;
+      color: var(--primary);
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      margin-top: 6px;
+    }
+    .source-link:hover { text-decoration: underline; }
+
+    /* ── Upcoming list ── */
+    .upcoming-section {
+      grid-column: 1 / -1;
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .upcoming-section h3 {
+      padding: 14px 18px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .upcoming-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    .upcoming-table th {
+      text-align: left;
+      padding: 10px 16px;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .upcoming-table td {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .upcoming-table tr:last-child td { border-bottom: none; }
+    .upcoming-table tr:hover td { background: var(--bg); }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .badge-sem { background: #dbeafe; color: #1e40af; }
+    .badge-branch { background: #dcfce7; color: #166534; }
+    .no-data { padding: 24px; text-align: center; color: var(--muted); font-size: 0.85rem; }
+
+    /* ── Loading ── */
+    #loading {
+      position: fixed; inset: 0;
+      background: rgba(255,255,255,0.9);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; color: var(--muted); z-index: 100;
+    }
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--primary);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin-right: 10px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div> Loading exam data…</div>
+
+<header>
+  <div>
+    <h1>KTU Exam Calendar</h1>
+    <p>Kerala Technological University — Automatically updated from official notifications</p>
+  </div>
+  <div id="last-updated">Last updated: —</div>
+</header>
+
+<div class="filters">
+  <label for="filter-sem">Semester</label>
+  <select id="filter-sem"><option value="">All Semesters</option></select>
+
+  <label for="filter-branch">Branch</label>
+  <select id="filter-branch"><option value="">All Branches</option></select>
+</div>
+
+<main>
+  <div class="calendar-card">
+    <div class="cal-nav">
+      <button id="prev-month" title="Previous month">&#8249;</button>
+      <h2 id="cal-title"></h2>
+      <button id="next-month" title="Next month">&#8250;</button>
+    </div>
+    <div class="cal-grid" id="cal-grid"></div>
+  </div>
+
+  <div class="detail-panel">
+    <h3 id="detail-title">Select a date</h3>
+    <div id="detail-body">
+      <div class="detail-empty">
+        <span>📅</span>
+        Click on a highlighted date to see exam details
+      </div>
+    </div>
+  </div>
+
+  <div class="upcoming-section">
+    <h3>Upcoming Exams</h3>
+    <div id="upcoming-body"></div>
+  </div>
+</main>
+
+<script>
+  const DATA_URL = "data/exams.json";
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+  let allExams = [];
+  let filteredExams = [];
+  let currentYear, currentMonth;
+  let selectedDate = null;
+
+  // ── Utilities ──────────────────────────────────────────────
+  function todayStr() {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
+  }
+
+  function fmtDate(dateStr) {
+    if (!dateStr) return "—";
+    const [y, m, d] = dateStr.split("-");
+    return `${d} ${MONTHS[parseInt(m)-1]} ${y}`;
+  }
+
+  function examsByDate(exams) {
+    const map = {};
+    for (const e of exams) {
+      if (e.date) {
+        (map[e.date] = map[e.date] || []).push(e);
+      }
+    }
+    return map;
+  }
+
+  // ── Filters ────────────────────────────────────────────────
+  function populateFilters() {
+    const sems = [...new Set(allExams.map(e => e.semester).filter(Boolean))].sort();
+    const branches = [...new Set(allExams.map(e => e.branch).filter(Boolean))].sort();
+
+    const semSel = document.getElementById("filter-sem");
+    const branchSel = document.getElementById("filter-branch");
+    const curSem = semSel.value;
+    const curBranch = branchSel.value;
+
+    semSel.innerHTML = '<option value="">All Semesters</option>' +
+      sems.map(s => `<option value="${s}" ${s===curSem?"selected":""}>${s}</option>`).join("");
+
+    branchSel.innerHTML = '<option value="">All Branches</option>' +
+      branches.map(b => `<option value="${b}" ${b===curBranch?"selected":""}>${b}</option>`).join("");
+  }
+
+  function applyFilters() {
+    const sem = document.getElementById("filter-sem").value;
+    const branch = document.getElementById("filter-branch").value;
+    filteredExams = allExams.filter(e =>
+      (!sem || e.semester === sem) &&
+      (!branch || e.branch === branch || e.branch === "All Branches" || e.branch === "All")
+    );
+    renderCalendar();
+    renderUpcoming();
+    if (selectedDate) showDetail(selectedDate);
+  }
+
+  // ── Calendar ───────────────────────────────────────────────
+  function renderCalendar() {
+    const grid = document.getElementById("cal-grid");
+    const title = document.getElementById("cal-title");
+    title.textContent = `${MONTHS[currentMonth]} ${currentYear}`;
+
+    const byDate = examsByDate(filteredExams);
+    const today = todayStr();
+    const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const daysInPrev = new Date(currentYear, currentMonth, 0).getDate();
+
+    let html = DAYS.map(d => `<div class="cal-weekday">${d}</div>`).join("");
+
+    // Padding from previous month
+    for (let i = 0; i < firstDay; i++) {
+      const day = daysInPrev - firstDay + 1 + i;
+      html += `<div class="cal-day empty other-month"><div class="day-num">${day}</div></div>`;
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${currentYear}-${String(currentMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const exams = byDate[dateStr] || [];
+      const isToday = dateStr === today;
+      const isSelected = dateStr === selectedDate;
+      const hasExam = exams.length > 0;
+
+      const chips = exams.slice(0, 2).map(e =>
+        `<div class="exam-chip">${e.course_code || e.course_name || "Exam"}</div>`
+      ).join("");
+      const more = exams.length > 2 ? `<div class="exam-chip">+${exams.length-2} more</div>` : "";
+
+      html += `<div class="cal-day${isToday?" today":""}${isSelected?" selected":""}${hasExam?" has-exam":""}${exams.length===0?" ":""}"
+        data-date="${dateStr}" onclick="selectDate('${dateStr}')">
+        <div class="day-num">${d}</div>
+        <div class="exam-chips">${chips}${more}</div>
+      </div>`;
+    }
+
+    // Padding to next month
+    const total = firstDay + daysInMonth;
+    const remaining = total % 7 === 0 ? 0 : 7 - (total % 7);
+    for (let i = 1; i <= remaining; i++) {
+      html += `<div class="cal-day empty other-month"><div class="day-num">${i}</div></div>`;
+    }
+
+    grid.innerHTML = html;
+  }
+
+  function selectDate(dateStr) {
+    selectedDate = dateStr;
+    renderCalendar();
+    showDetail(dateStr);
+  }
+
+  // ── Detail panel ───────────────────────────────────────────
+  function showDetail(dateStr) {
+    const byDate = examsByDate(filteredExams);
+    const exams = byDate[dateStr] || [];
+    const title = document.getElementById("detail-title");
+    const body = document.getElementById("detail-body");
+
+    title.textContent = fmtDate(dateStr);
+
+    if (exams.length === 0) {
+      body.innerHTML = `<div class="detail-empty"><span>✅</span>No exams on this date</div>`;
+      return;
+    }
+
+    body.innerHTML = `<div class="exam-list">${exams.map(examCard).join("")}</div>`;
+  }
+
+  function examCard(e) {
+    return `<div class="exam-item">
+      ${e.course_code ? `<div class="exam-item-code">${e.course_code}</div>` : ""}
+      <div class="exam-item-name">${e.course_name || "Exam"}</div>
+      <div class="exam-meta">
+        ${e.time ? `<span>🕐 <strong>${e.time}</strong></span>` : ""}
+        ${e.semester ? `<span>📚 Semester: <strong>${e.semester}</strong></span>` : ""}
+        ${e.branch ? `<span>🏫 Branch: <strong>${e.branch}</strong></span>` : ""}
+        ${e.day ? `<span>📅 ${e.day}</span>` : ""}
+      </div>
+      ${e.notes ? `<div class="exam-note">⚠️ ${e.notes}</div>` : ""}
+      ${e.source_url ? `<a class="source-link" href="${e.source_url}" target="_blank">📄 View official notification</a>` : ""}
+    </div>`;
+  }
+
+  // ── Upcoming table ─────────────────────────────────────────
+  function renderUpcoming() {
+    const body = document.getElementById("upcoming-body");
+    const today = todayStr();
+    const upcoming = filteredExams
+      .filter(e => e.date && e.date >= today)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 30);
+
+    if (upcoming.length === 0) {
+      body.innerHTML = `<div class="no-data">No upcoming exams found${filteredExams.length === 0 ? " — data may not have loaded yet" : " matching your filters"}.</div>`;
+      return;
+    }
+
+    body.innerHTML = `<table class="upcoming-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Time</th>
+          <th>Course</th>
+          <th>Semester</th>
+          <th>Branch</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${upcoming.map(e => `<tr>
+          <td><strong>${fmtDate(e.date)}</strong>${e.day ? `<br><small style="color:var(--muted)">${e.day}</small>` : ""}</td>
+          <td>${e.time || "—"}</td>
+          <td>
+            ${e.course_code ? `<span class="badge badge-sem" style="background:#dbeafe;color:#1e40af">${e.course_code}</span> ` : ""}
+            ${e.course_name || "—"}
+          </td>
+          <td>${e.semester ? `<span class="badge badge-sem">${e.semester}</span>` : "—"}</td>
+          <td>${e.branch ? `<span class="badge badge-branch">${e.branch}</span>` : "—"}</td>
+          <td style="font-size:0.75rem;color:var(--muted)">${e.notes || ""}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>`;
+  }
+
+  // ── Navigation ─────────────────────────────────────────────
+  document.getElementById("prev-month").addEventListener("click", () => {
+    if (currentMonth === 0) { currentMonth = 11; currentYear--; }
+    else currentMonth--;
+    renderCalendar();
+  });
+
+  document.getElementById("next-month").addEventListener("click", () => {
+    if (currentMonth === 11) { currentMonth = 0; currentYear++; }
+    else currentMonth++;
+    renderCalendar();
+  });
+
+  document.getElementById("filter-sem").addEventListener("change", applyFilters);
+  document.getElementById("filter-branch").addEventListener("change", applyFilters);
+
+  // ── Bootstrap ──────────────────────────────────────────────
+  async function init() {
+    const now = new Date();
+    currentYear = now.getFullYear();
+    currentMonth = now.getMonth();
+
+    try {
+      const res = await fetch("data/exams.json");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      allExams = data.exams || [];
+      filteredExams = allExams;
+
+      if (data.last_updated) {
+        const d = new Date(data.last_updated);
+        document.getElementById("last-updated").textContent =
+          `Last updated: ${d.toLocaleString()}`;
+      } else {
+        document.getElementById("last-updated").textContent = "Not yet populated — run the scraper";
+      }
+
+      populateFilters();
+      renderCalendar();
+      renderUpcoming();
+    } catch (err) {
+      console.error(err);
+      document.getElementById("last-updated").textContent = "⚠️ Could not load data";
+      renderCalendar();
+      renderUpcoming();
+    } finally {
+      document.getElementById("loading").style.display = "none";
+    }
+  }
+
+  init();
+</script>
+</body>
+</html>
