@@ -9,32 +9,66 @@ from pathlib import Path
 
 import requests
 import pdfplumber
-import google.generativeai as genai
-from bs4 import BeautifulSoup
+from google import genai
+from playwright.sync_api import sync_playwright
 
-# Suppress SSL warnings since KTU's certificate has issues
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 TIMETABLE_URL = "https://ktu.edu.in/exam/timetable"
-BASE_URL = "https://ktu.edu.in"
 ROOT = Path(__file__).parent.parent
 DATA_FILE = ROOT / "data" / "exams.json"
 HASHES_FILE = ROOT / "data" / "pdf_hashes.json"
 
 
 def fetch_pdf_links():
-    resp = requests.get(TIMETABLE_URL, verify=False, timeout=30)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+    """Use a headless browser to render the page and collect all PDF links."""
     links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if href.lower().endswith(".pdf"):
-            if not href.startswith("http"):
-                href = BASE_URL + href
-            label = a.get_text(strip=True) or href.split("/")[-1]
-            links.append({"url": href, "name": label})
-    return links
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+
+        print("  Opening KTU timetable page in headless browser...")
+        page.goto(TIMETABLE_URL, timeout=60000, wait_until="networkidle")
+
+        # Wait a bit more for any lazy-loaded content
+        page.wait_for_timeout(3000)
+
+        # Grab every anchor whose href ends with .pdf
+        anchors = page.eval_on_selector_all(
+            "a",
+            """els => els
+                .filter(el => el.href && el.href.toLowerCase().includes('.pdf'))
+                .map(el => ({ url: el.href, name: el.innerText.trim() || el.href.split('/').pop() }))
+            """
+        )
+        links.extend(anchors)
+
+        # Also scan for links inside iframes if any
+        for frame in page.frames:
+            if frame == page.main_frame:
+                continue
+            try:
+                frame_anchors = frame.eval_on_selector_all(
+                    "a",
+                    """els => els
+                        .filter(el => el.href && el.href.toLowerCase().includes('.pdf'))
+                        .map(el => ({ url: el.href, name: el.innerText.trim() || el.href.split('/').pop() }))
+                    """
+                )
+                links.extend(frame_anchors)
+            except Exception:
+                pass
+
+        browser.close()
+
+    # Deduplicate by URL
+    seen = set()
+    unique = []
+    for link in links:
+        if link["url"] not in seen:
+            seen.add(link["url"])
+            unique.append(link)
+    return unique
 
 
 def download_pdf(url):
@@ -59,8 +93,7 @@ def extract_text_from_pdf(pdf_bytes):
         Path(tmp_path).unlink(missing_ok=True)
 
 
-def parse_with_gemini(text, source_name):
-    model = genai.GenerativeModel("gemini-1.5-flash")
+def parse_with_gemini(client, text, source_name):
     prompt = f"""You are extracting exam timetable data from a KTU (Kerala Technological University) official notification.
 
 Extract every exam entry and return a JSON array. Each object must have:
@@ -71,22 +104,23 @@ Extract every exam entry and return a JSON array. Each object must have:
 - "time": string (e.g. "10:00 AM") or null
 - "semester": string (e.g. "S6") or null
 - "branch": string (e.g. "CSE" or "All Branches") or null
-- "notes": string (any special instruction, rescheduling notice, etc.) or null
+- "notes": string (any rescheduling notice or special instruction) or null
 
 Rules:
-- Return ONLY a valid JSON array, no explanation or markdown.
-- If a field is not mentioned, set it to null.
+- Return ONLY a valid JSON array, no explanation or markdown fences.
+- If a field is not mentioned, use null.
 - If the document mentions a rescheduled exam, include it with a note.
-- If there are multiple branches or semesters in one row, create separate entries.
 
 Document title: {source_name}
 
 Text:
 {text[:10000]}"""
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents=prompt,
+    )
     raw = response.text.strip()
-    # Strip markdown code fences if present
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw)
     match = re.search(r"\[.*\]", raw, re.DOTALL)
@@ -110,16 +144,24 @@ def main():
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable not set")
-    genai.configure(api_key=api_key)
+
+    gemini = genai.Client(api_key=api_key)
 
     print("Fetching PDF links from KTU timetable page...")
     links = fetch_pdf_links()
     print(f"Found {len(links)} PDF link(s)")
 
+    if not links:
+        print("No PDF links found. The page structure may have changed.")
+        print("Saving empty data file so the calendar still loads cleanly.")
+        existing = load_json(DATA_FILE, {"last_updated": None, "sources": [], "exams": []})
+        existing["last_updated"] = datetime.now(timezone.utc).isoformat()
+        save_json(DATA_FILE, existing)
+        return
+
     hashes = load_json(HASHES_FILE, {})
     existing_data = load_json(DATA_FILE, {"last_updated": None, "sources": [], "exams": []})
 
-    # Build a lookup of existing exams by source URL for unchanged PDFs
     existing_by_source = {}
     for exam in existing_data.get("exams", []):
         src = exam.get("source_url")
@@ -131,9 +173,8 @@ def main():
 
     for link in links:
         url = link["url"]
-        name = link["name"]
+        name = link["name"] or url.split("/")[-1]
         print(f"\nChecking: {name}")
-        print(f"  URL: {url}")
 
         try:
             pdf_bytes = download_pdf(url)
@@ -156,7 +197,7 @@ def main():
                 continue
 
             print("  Parsing with Gemini...")
-            exams = parse_with_gemini(text, name)
+            exams = parse_with_gemini(gemini, text, name)
 
             for exam in exams:
                 exam["source_url"] = url
@@ -170,7 +211,6 @@ def main():
 
         except Exception as e:
             print(f"  ERROR: {e}")
-            # Keep existing data for this source on error
             all_exams.extend(existing_by_source.get(url, []))
 
     if any_changed:
