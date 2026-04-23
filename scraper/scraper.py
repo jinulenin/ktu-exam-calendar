@@ -81,8 +81,8 @@ def browser_fetch_pdf(page, url, extra_headers=None):
 
 def fetch_all_timetable_pdfs():
     """
-    Opens KTU timetable, fetches all pages, finds working PDF URL, downloads all PDFs.
-    All API calls run inside the browser JS context so auth tokens are automatically included.
+    Opens KTU timetable page, clicks through pages and download buttons,
+    and captures PDFs via browser interaction.
     Returns list of {url, name, fileName, pdf_bytes, meta}.
     """
     results = []
@@ -93,29 +93,32 @@ def fetch_all_timetable_pdfs():
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
 
-        captured_headers = {}
+        all_entries = []
+        pdf_requests_captured = []
 
-        # Capture request headers from the first timetable API call
-        def handle_request(request):
-            if "anon/timetable" in request.url and "Weblogs" not in request.url and not captured_headers:
-                captured_headers.update(dict(request.headers))
-                print(f"  Captured auth headers: {[k for k in captured_headers if k.lower() not in ('user-agent','accept-language','accept-encoding')]}")
-
-        # Capture response data from page 1
         def handle_response(response):
             try:
                 ct = response.headers.get("content-type", "")
                 if "json" in ct and "anon/timetable" in response.url and "Weblogs" not in response.url:
                     data = response.json()
-                    first_page_data.update(data)
-                    print(f"  Page 1: {len(data.get('content', []))} entries, totalPages={data.get('totalPages')}")
+                    entries = data.get("content", [])
+                    all_entries.extend(entries)
+                    if not first_page_data:
+                        first_page_data.update(data)
+                    print(f"  API response: +{len(entries)} entries (total now {len(all_entries)}), totalPages={data.get('totalPages')}")
             except Exception:
                 pass
 
-        page.on("request", handle_request)
-        page.on("response", handle_response)
+        def handle_request(request):
+            url = request.url
+            if ("pdf" in url.lower() or "download" in url.lower() or "attachment" in url.lower()) and "Weblogs" not in url:
+                pdf_requests_captured.append(url)
+                print(f"  >>> PDF request captured: {url}")
 
-        print("  Loading KTU timetable page in browser...")
+        page.on("response", handle_response)
+        page.on("request", handle_request)
+
+        print("  Loading KTU timetable page...")
         try:
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="domcontentloaded")
         except Exception as e:
@@ -123,85 +126,48 @@ def fetch_all_timetable_pdfs():
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="load")
         page.wait_for_timeout(6000)
 
-        if not first_page_data:
-            print("  No API data captured from page load")
-            browser.close()
-            return []
-
-        all_entries = list(first_page_data.get("content", []))
-        total_pages = first_page_data.get("totalPages", 1)
-        print(f"  Total pages: {total_pages} — fetching remaining pages via browser JS...")
-
-        # Fetch remaining pages using captured auth headers
-        print(f"  Auth headers captured: {bool(captured_headers)}")
-        for page_num in range(1, total_pages):
-            data = browser_fetch_json(page, f"{KTU_API}?page={page_num}", captured_headers)
-            if data:
-                entries = data.get("content", [])
-                all_entries.extend(entries)
-                print(f"  Page {page_num + 1}/{total_pages}: +{len(entries)} entries")
-            else:
-                print(f"  Page {page_num + 1} returned null — stopping")
-                break
-
-        print(f"  Total entries: {len(all_entries)}")
-
         if not all_entries:
+            print("  No entries captured from page load")
             browser.close()
             return []
 
-        # Find working PDF download URL using browser JS fetch on first entry
-        first = all_entries[0]
-        print(f"  Finding PDF URL for: {first.get('fileName')}")
-        working_key = None
-        working_template = None
+        total_pages = first_page_data.get("totalPages", 1)
+        print(f"  Page 1 loaded. Total pages: {total_pages}")
 
-        for key_field, template in PDF_URL_PATTERNS:
-            key_val = first.get(key_field, "")
-            if not key_val:
-                continue
-            test_url = template.format(key_val)
-            pdf_bytes = browser_fetch_pdf(page, test_url, captured_headers)
-            if pdf_bytes:
-                working_key = key_field
-                working_template = template
-                print(f"  ✓ Working pattern: {template}")
-                # Save first PDF to results immediately
-                results.append({
-                    "url": test_url,
-                    "name": first.get("timeTableTitle") or first.get("fileName", ""),
-                    "fileName": first.get("fileName", ""),
-                    "pdf_bytes": pdf_bytes,
-                    "meta": first,
-                })
-                break
-            else:
-                print(f"  ✗ {test_url}")
+        # Print page elements to understand UI structure
+        elements = page.eval_on_selector_all(
+            "button, a, mat-icon, [role='button']",
+            "els => els.map(el => ({tag: el.tagName, text: el.textContent.trim().slice(0,40), cls: el.className.slice(0,60), aria: el.getAttribute('aria-label')||''}))"
+        )
+        print(f"  Interactive elements on page ({len(elements)} total), first 25:")
+        for el in elements[:25]:
+            print(f"    {el['tag']} | text='{el['text']}' | aria='{el['aria']}' | class='{el['cls'][:40]}'")
 
-        if not working_template:
-            print("  No working PDF URL pattern found")
-            browser.close()
-            return []
+        # Try clicking what looks like a download/view button for the first row
+        print("\n  Trying to click download/view buttons...")
+        for selector in [
+            "button[aria-label='View']", "button[aria-label='Download']",
+            "button[aria-label='view']", "button[aria-label='download']",
+            "mat-icon:text('visibility')", "mat-icon:text('get_app')",
+            "mat-icon:text('download')", "mat-icon:text('picture_as_pdf')",
+            "td button", "tr button", ".mat-icon-button", "button.mat-mdc-icon-button",
+        ]:
+            try:
+                loc = page.locator(selector)
+                count = loc.count()
+                if count > 0:
+                    print(f"  Found {count} elements for '{selector}' — clicking first")
+                    before = len(pdf_requests_captured)
+                    loc.first.click()
+                    page.wait_for_timeout(3000)
+                    if len(pdf_requests_captured) > before:
+                        print(f"  ✓ Click triggered PDF request!")
+                        break
+            except Exception as e:
+                pass
 
-        # Download remaining PDFs
-        print(f"  Downloading remaining {len(all_entries) - 1} PDFs...")
-        for entry in all_entries[1:]:
-            key_val = entry.get(working_key, "")
-            if not key_val:
-                continue
-            url = working_template.format(key_val)
-            file_name = entry.get("fileName", "")
-            name = entry.get("timeTableTitle") or entry.get("title") or file_name
-
-            pdf_bytes = browser_fetch_pdf(page, url, captured_headers)
-            if pdf_bytes:
-                results.append({
-                    "url": url, "name": name,
-                    "fileName": file_name, "pdf_bytes": pdf_bytes, "meta": entry,
-                })
-                print(f"  ✓ {file_name}")
-            else:
-                print(f"  ✗ {file_name}")
+        print(f"\n  Total PDF requests captured via clicks: {len(pdf_requests_captured)}")
+        print(f"  PDF request URLs: {pdf_requests_captured}")
 
         browser.close()
 
