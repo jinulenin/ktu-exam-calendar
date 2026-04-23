@@ -44,11 +44,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp data/exams.json /tmp/exams_new.json
+          cp data/pdf_hashes.json /tmp/hashes_new.json
+          git fetch origin main
+          git reset --hard origin/main
+          cp /tmp/exams_new.json data/exams.json
+          cp /tmp/hashes_new.json data/pdf_hashes.json
           git add data/exams.json data/pdf_hashes.json
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
+          git diff --staged --quiet && echo "No changes to commit" && exit 0
           git commit -m "chore: update exam data $(date -u '+%Y-%m-%d %H:%M UTC')"
-          git pull --rebase origin main
           git push
