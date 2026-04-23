@@ -72,26 +72,30 @@ def fetch_pdf_links():
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
 
+        timetable_json = []
+
         # Intercept every network response to catch PDFs loaded via API
         def handle_response(response):
             url = response.url
             try:
                 content_type = response.headers.get("content-type", "")
-                # Direct PDF response
-                if "application/pdf" in content_type or url.lower().endswith(".pdf"):
-                    network_pdfs.append({"url": url, "name": url.split("/")[-1]})
-                # JSON API response — scan body for PDF URLs
-                elif "json" in content_type and "ktu.edu.in" in url:
+                if "json" in content_type and "ktu.edu.in" in url:
                     api_calls.append(url)
-                    body = response.text()
-                    found = re.findall(r'https?://[^\s"\'\\<>]+\.pdf', body, re.IGNORECASE)
-                    for u in found:
-                        network_pdfs.append({"url": u, "name": u.split("/")[-1]})
-                    # Also look for relative PDF paths
-                    relative = re.findall(r'["\']([^"\']*\.pdf)["\']', body, re.IGNORECASE)
-                    for r in relative:
-                        full = r if r.startswith("http") else f"https://ktu.edu.in/{r.lstrip('/')}"
-                        network_pdfs.append({"url": full, "name": full.split("/")[-1]})
+                    # Specifically capture the timetable endpoint response
+                    if "anon/timetable" in url and "Weblogs" not in url:
+                        body = response.text()
+                        print(f"\n  === TIMETABLE API RESPONSE ===")
+                        print(f"  URL: {url}")
+                        print(f"  First 1500 chars: {body[:1500]}")
+                        print(f"  ==============================\n")
+                        try:
+                            data = response.json()
+                            if isinstance(data, list):
+                                timetable_json.extend(data)
+                            elif isinstance(data, dict):
+                                timetable_json.append(data)
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -113,11 +117,23 @@ def fetch_pdf_links():
 
         print(f"  Page title: {page.title()}")
         print(f"  API calls intercepted: {len(api_calls)}")
-        if api_calls:
-            print(f"  API endpoints: {api_calls[:5]}")
-        print(f"  PDFs found via network: {len(network_pdfs)}")
+        print(f"  Timetable entries captured: {len(timetable_json)}")
 
-        # Also grab PDF links directly from DOM
+        # Build links from the captured timetable JSON
+        if timetable_json:
+            print(f"  First entry keys: {list(timetable_json[0].keys()) if isinstance(timetable_json[0], dict) else timetable_json[0]}")
+            for entry in timetable_json:
+                if not isinstance(entry, dict):
+                    continue
+                # Try every possible field name that could hold a URL or filename
+                for key, val in entry.items():
+                    if isinstance(val, str) and val.lower().endswith(".pdf"):
+                        url = val if val.startswith("http") else f"https://api.ktu.edu.in/ktu-web-portal-api/{val.lstrip('/')}"
+                        name = entry.get("title") or entry.get("name") or entry.get("subject") or val.split("/")[-1]
+                        links.append({"url": url, "name": name, "entry": entry})
+                        print(f"  Found PDF field '{key}': {url}")
+
+        # Also grab PDF links directly from DOM as fallback
         anchors = page.eval_on_selector_all(
             "a",
             """els => els
@@ -125,14 +141,9 @@ def fetch_pdf_links():
                 .map(el => ({ url: el.href, name: el.innerText.trim() || el.href.split('/').pop() }))
             """
         )
-        print(f"  PDF links in DOM: {len(anchors)}")
-        links.extend(anchors)
-        links.extend(network_pdfs)
-
-        # Print full page HTML snippet for diagnosis if still nothing found
-        if not links:
-            html = page.content()
-            print(f"  Page HTML snippet (first 1000 chars):\n{html[:1000]}")
+        if anchors:
+            print(f"  PDF links in DOM: {len(anchors)}")
+            links.extend(anchors)
 
         browser.close()
 
