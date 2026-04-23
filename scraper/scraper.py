@@ -33,36 +33,49 @@ PDF_URL_PATTERNS = [
 ]
 
 
-def browser_fetch_json(page, url):
-    """Run fetch() inside the browser's JS context — uses the app's auth tokens."""
+def browser_fetch_json(page, url, extra_headers=None):
+    """Run fetch() inside the browser JS context with captured auth headers."""
+    headers_js = json.dumps(extra_headers or {})
     result = page.evaluate(f"""async () => {{
         try {{
-            const resp = await fetch("{url}", {{credentials: "include"}});
-            if (!resp.ok) return null;
+            const resp = await fetch("{url}", {{
+                credentials: "include",
+                headers: {headers_js}
+            }});
+            if (!resp.ok) {{
+                console.log("fetch failed", resp.status, "{url}");
+                return null;
+            }}
             return await resp.json();
-        }} catch(e) {{ return null; }}
+        }} catch(e) {{ console.log("fetch error", e.message); return null; }}
     }}""")
     return result
 
 
-def browser_fetch_pdf(page, url):
-    """Download a PDF as base64 from inside the browser's JS context."""
-    import base64
+def browser_fetch_pdf(page, url, extra_headers=None):
+    """Download a PDF as base64 via browser JS fetch, with debug output."""
+    headers_js = json.dumps(extra_headers or {})
     result = page.evaluate(f"""async () => {{
         try {{
-            const resp = await fetch("{url}", {{credentials: "include"}});
-            if (!resp.ok) return null;
+            const resp = await fetch("{url}", {{
+                credentials: "include",
+                headers: {headers_js}
+            }});
             const ct = resp.headers.get("content-type") || "";
-            if (!ct.toLowerCase().includes("pdf")) return null;
+            if (!resp.ok || !ct.toLowerCase().includes("pdf")) {{
+                return {{error: resp.status + " " + ct}};
+            }}
             const buf = await resp.arrayBuffer();
             const bytes = new Uint8Array(buf);
             let bin = "";
             bytes.forEach(b => bin += String.fromCharCode(b));
-            return btoa(bin);
-        }} catch(e) {{ return null; }}
+            return {{data: btoa(bin)}};
+        }} catch(e) {{ return {{error: e.message}}; }}
     }}""")
-    if result:
-        return base64.b64decode(result)
+    if isinstance(result, dict):
+        if "data" in result:
+            return base64.b64decode(result["data"])
+        print(f"    fetch result: {result.get('error', 'unknown')}")
     return None
 
 
@@ -80,7 +93,15 @@ def fetch_all_timetable_pdfs():
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
 
-        # Intercept the first timetable response to get totalPages
+        captured_headers = {}
+
+        # Capture request headers from the first timetable API call
+        def handle_request(request):
+            if "anon/timetable" in request.url and "Weblogs" not in request.url and not captured_headers:
+                captured_headers.update(dict(request.headers))
+                print(f"  Captured auth headers: {[k for k in captured_headers if k.lower() not in ('user-agent','accept-language','accept-encoding')]}")
+
+        # Capture response data from page 1
         def handle_response(response):
             try:
                 ct = response.headers.get("content-type", "")
@@ -91,6 +112,7 @@ def fetch_all_timetable_pdfs():
             except Exception:
                 pass
 
+        page.on("request", handle_request)
         page.on("response", handle_response)
 
         print("  Loading KTU timetable page in browser...")
@@ -110,9 +132,10 @@ def fetch_all_timetable_pdfs():
         total_pages = first_page_data.get("totalPages", 1)
         print(f"  Total pages: {total_pages} — fetching remaining pages via browser JS...")
 
-        # Fetch remaining pages by running fetch() inside the browser (has auth tokens)
+        # Fetch remaining pages using captured auth headers
+        print(f"  Auth headers captured: {bool(captured_headers)}")
         for page_num in range(1, total_pages):
-            data = browser_fetch_json(page, f"{KTU_API}?page={page_num}")
+            data = browser_fetch_json(page, f"{KTU_API}?page={page_num}", captured_headers)
             if data:
                 entries = data.get("content", [])
                 all_entries.extend(entries)
@@ -138,7 +161,7 @@ def fetch_all_timetable_pdfs():
             if not key_val:
                 continue
             test_url = template.format(key_val)
-            pdf_bytes = browser_fetch_pdf(page, test_url)
+            pdf_bytes = browser_fetch_pdf(page, test_url, captured_headers)
             if pdf_bytes:
                 working_key = key_field
                 working_template = template
@@ -170,7 +193,7 @@ def fetch_all_timetable_pdfs():
             file_name = entry.get("fileName", "")
             name = entry.get("timeTableTitle") or entry.get("title") or file_name
 
-            pdf_bytes = browser_fetch_pdf(page, url)
+            pdf_bytes = browser_fetch_pdf(page, url, captured_headers)
             if pdf_bytes:
                 results.append({
                     "url": url, "name": name,
