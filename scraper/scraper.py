@@ -38,7 +38,17 @@ def fetch_pdf_links():
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="load")
 
         # Wait for JS-rendered content to appear
-        page.wait_for_timeout(5000)
+        page.wait_for_timeout(6000)
+
+        # Debug: print page title and URL
+        print(f"  Page title: {page.title()}")
+        print(f"  Page URL:   {page.url}")
+
+        # Count ALL links on the page for debugging
+        all_links = page.eval_on_selector_all("a[href]", "els => els.map(el => el.href)")
+        print(f"  Total links found on page: {len(all_links)}")
+        if all_links:
+            print(f"  Sample links: {all_links[:5]}")
 
         # Grab every anchor whose href contains .pdf
         anchors = page.eval_on_selector_all(
@@ -49,6 +59,16 @@ def fetch_pdf_links():
             """
         )
         links.extend(anchors)
+        print(f"  PDF links found: {len(anchors)}")
+
+        # Also check for network-intercepted PDF URLs via page source
+        page_content = page.content()
+        pdf_pattern = re.findall(r'https?://[^\s"\'<>]+\.pdf', page_content, re.IGNORECASE)
+        for url in pdf_pattern:
+            if url not in [l["url"] for l in links]:
+                links.append({"url": url, "name": url.split("/")[-1]})
+        if pdf_pattern:
+            print(f"  Additional PDF URLs found in page source: {len(pdf_pattern)}")
 
         # Also scan inside iframes
         for frame in page.frames:
