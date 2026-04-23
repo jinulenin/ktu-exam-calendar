@@ -21,36 +21,62 @@ HASHES_FILE = ROOT / "data" / "pdf_hashes.json"
 
 
 def fetch_pdf_links():
-    """Use a headless browser to render the page and collect all PDF links."""
+    """Use a headless browser with network interception to collect PDF links."""
     links = []
+    network_pdfs = []
+    api_calls = []
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # Ignore SSL errors — KTU has certificate issues
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
 
+        # Intercept every network response to catch PDFs loaded via API
+        def handle_response(response):
+            url = response.url
+            try:
+                content_type = response.headers.get("content-type", "")
+                # Direct PDF response
+                if "application/pdf" in content_type or url.lower().endswith(".pdf"):
+                    network_pdfs.append({"url": url, "name": url.split("/")[-1]})
+                # JSON API response — scan body for PDF URLs
+                elif "json" in content_type and "ktu.edu.in" in url:
+                    api_calls.append(url)
+                    body = response.text()
+                    found = re.findall(r'https?://[^\s"\'\\<>]+\.pdf', body, re.IGNORECASE)
+                    for u in found:
+                        network_pdfs.append({"url": u, "name": u.split("/")[-1]})
+                    # Also look for relative PDF paths
+                    relative = re.findall(r'["\']([^"\']*\.pdf)["\']', body, re.IGNORECASE)
+                    for r in relative:
+                        full = r if r.startswith("http") else f"https://ktu.edu.in/{r.lstrip('/')}"
+                        network_pdfs.append({"url": full, "name": full.split("/")[-1]})
+            except Exception:
+                pass
+
+        page.on("response", handle_response)
+
         print("  Opening KTU timetable page in headless browser...")
         try:
-            # domcontentloaded is faster and more reliable than networkidle
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="domcontentloaded")
         except Exception as e:
-            print(f"  First load attempt failed ({e}), retrying with 'load'...")
+            print(f"  First load attempt failed ({e}), retrying...")
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="load")
 
-        # Wait for JS-rendered content to appear
-        page.wait_for_timeout(6000)
+        # Wait for dynamic content to load
+        page.wait_for_timeout(8000)
 
-        # Debug: print page title and URL
+        # Scroll down to trigger any lazy-loaded content
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(3000)
+
         print(f"  Page title: {page.title()}")
-        print(f"  Page URL:   {page.url}")
+        print(f"  API calls intercepted: {len(api_calls)}")
+        if api_calls:
+            print(f"  API endpoints: {api_calls[:5]}")
+        print(f"  PDFs found via network: {len(network_pdfs)}")
 
-        # Count ALL links on the page for debugging
-        all_links = page.eval_on_selector_all("a[href]", "els => els.map(el => el.href)")
-        print(f"  Total links found on page: {len(all_links)}")
-        if all_links:
-            print(f"  Sample links: {all_links[:5]}")
-
-        # Grab every anchor whose href contains .pdf
+        # Also grab PDF links directly from DOM
         anchors = page.eval_on_selector_all(
             "a",
             """els => els
@@ -58,33 +84,14 @@ def fetch_pdf_links():
                 .map(el => ({ url: el.href, name: el.innerText.trim() || el.href.split('/').pop() }))
             """
         )
+        print(f"  PDF links in DOM: {len(anchors)}")
         links.extend(anchors)
-        print(f"  PDF links found: {len(anchors)}")
+        links.extend(network_pdfs)
 
-        # Also check for network-intercepted PDF URLs via page source
-        page_content = page.content()
-        pdf_pattern = re.findall(r'https?://[^\s"\'<>]+\.pdf', page_content, re.IGNORECASE)
-        for url in pdf_pattern:
-            if url not in [l["url"] for l in links]:
-                links.append({"url": url, "name": url.split("/")[-1]})
-        if pdf_pattern:
-            print(f"  Additional PDF URLs found in page source: {len(pdf_pattern)}")
-
-        # Also scan inside iframes
-        for frame in page.frames:
-            if frame == page.main_frame:
-                continue
-            try:
-                frame_anchors = frame.eval_on_selector_all(
-                    "a",
-                    """els => els
-                        .filter(el => el.href && el.href.toLowerCase().includes('.pdf'))
-                        .map(el => ({ url: el.href, name: el.innerText.trim() || el.href.split('/').pop() }))
-                    """
-                )
-                links.extend(frame_anchors)
-            except Exception:
-                pass
+        # Print full page HTML snippet for diagnosis if still nothing found
+        if not links:
+            html = page.content()
+            print(f"  Page HTML snippet (first 1000 chars):\n{html[:1000]}")
 
         browser.close()
 
