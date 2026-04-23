@@ -15,169 +15,147 @@ from playwright.sync_api import sync_playwright
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
 TIMETABLE_URL = "https://ktu.edu.in/exam/timetable"
+KTU_API = "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable"
 ROOT = Path(__file__).parent.parent
 DATA_FILE = ROOT / "data" / "exams.json"
 HASHES_FILE = ROOT / "data" / "pdf_hashes.json"
 
-
-KTU_API = "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable"
-
-
-def fetch_pdf_links_from_api():
-    """Call the KTU timetable API directly and extract PDF download URLs."""
-    resp = requests.get(KTU_API, verify=False, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-
-    # Print raw structure so we can see the shape of the data
-    print(f"  API returned {len(data) if isinstance(data, list) else type(data).__name__}")
-    if isinstance(data, list) and data:
-        print(f"  First entry keys: {list(data[0].keys()) if isinstance(data[0], dict) else data[0]}")
-        print(f"  First entry: {json.dumps(data[0], indent=2)[:500]}")
-    elif isinstance(data, dict):
-        print(f"  Response keys: {list(data.keys())}")
-        print(f"  Response: {json.dumps(data, indent=2)[:500]}")
-
-    links = []
-    entries = data if isinstance(data, list) else data.get("data", data.get("results", data.get("content", [])))
-
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        # Try common field names for the file URL
-        url = (entry.get("attachmentUrl") or entry.get("fileUrl") or
-               entry.get("file_url") or entry.get("url") or
-               entry.get("pdfUrl") or entry.get("pdf_url") or
-               entry.get("link") or entry.get("documentUrl"))
-        # Try common field names for the filename
-        filename = (entry.get("attachmentName") or entry.get("fileName") or
-                    entry.get("file_name") or entry.get("name") or
-                    entry.get("title") or "")
-        if url:
-            if not url.startswith("http"):
-                url = f"https://api.ktu.edu.in/{url.lstrip('/')}"
-            links.append({"url": url, "name": filename})
-
-    return links
+# URL patterns to test for PDF downloads (in order of likelihood)
+PDF_URL_PATTERNS = [
+    ("encryptId",    "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/getAttachment/{}"),
+    ("encryptId",    "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/download/{}"),
+    ("encryptId",    "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/attachment/{}"),
+    ("encryptId",    "https://api.ktu.edu.in/ktu-web-portal-api/anon/attachment/{}"),
+    ("attachmentId", "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/getAttachment/{}"),
+    ("attachmentId", "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/download/{}"),
+    ("attachmentId", "https://api.ktu.edu.in/ktu-web-portal-api/anon/attachment/{}"),
+]
 
 
-def fetch_pdf_links():
-    """Use a headless browser with network interception to collect PDF links."""
-    links = []
-    network_pdfs = []
-    api_calls = []
+def fetch_all_timetable_pdfs():
+    """
+    Opens KTU timetable in a headless browser, fetches ALL pages via the API
+    using the browser's authenticated session, and downloads all PDFs.
+    Returns list of {url, name, fileName, pdf_bytes, meta}.
+    """
+    results = []
+    first_page_data = {}
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
 
-        timetable_entries = []
-
         def handle_response(response):
-            url = response.url
             try:
-                content_type = response.headers.get("content-type", "")
-                if "json" in content_type and "anon/timetable" in url and "Weblogs" not in url:
-                    api_calls.append(url)
-                    try:
-                        data = response.json()
-                        # The response is {"content": [...], "pageable": ...}
-                        entries = data.get("content", []) if isinstance(data, dict) else data
-                        timetable_entries.extend(entries)
-                        print(f"  Captured {len(entries)} timetable entries from API")
-                    except Exception as e:
-                        print(f"  JSON parse error: {e}")
+                ct = response.headers.get("content-type", "")
+                if "json" in ct and "anon/timetable" in response.url and "Weblogs" not in response.url:
+                    data = response.json()
+                    first_page_data.update(data)
+                    print(f"  Page 1 captured: {len(data.get('content', []))} entries, totalPages={data.get('totalPages')}")
             except Exception:
                 pass
 
         page.on("response", handle_response)
 
-        print("  Opening KTU timetable page in headless browser...")
+        print("  Loading KTU timetable page in browser...")
         try:
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="domcontentloaded")
         except Exception as e:
-            print(f"  First load attempt failed ({e}), retrying...")
+            print(f"  Retrying page load: {e}")
             page.goto(TIMETABLE_URL, timeout=90000, wait_until="load")
+        page.wait_for_timeout(6000)
 
-        # Wait for dynamic content to load
-        page.wait_for_timeout(8000)
+        if not first_page_data:
+            print("  No API data captured — page may not have loaded properly")
+            browser.close()
+            return []
 
-        # Scroll down to trigger any lazy-loaded content
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        page.wait_for_timeout(3000)
+        # Collect all entries across all pages
+        all_entries = list(first_page_data.get("content", []))
+        total_pages = first_page_data.get("totalPages", 1)
+        print(f"  Total pages: {total_pages} — fetching all...")
 
-        print(f"  Page title: {page.title()}")
-        print(f"  Timetable entries captured: {len(timetable_entries)}")
+        for page_num in range(1, total_pages):
+            try:
+                # Use context.request — same session as the browser, fully authenticated
+                resp = context.request.get(f"{KTU_API}?page={page_num}", timeout=30000)
+                if resp.ok:
+                    data = resp.json()
+                    entries = data.get("content", [])
+                    all_entries.extend(entries)
+                    print(f"  Page {page_num + 1}/{total_pages}: +{len(entries)} entries")
+                else:
+                    print(f"  Page {page_num + 1} failed with status {resp.status} — stopping pagination")
+                    break
+            except Exception as e:
+                print(f"  Page {page_num + 1} error: {e} — stopping pagination")
+                break
 
-        if timetable_entries:
-            # Get browser cookies to use for authenticated PDF downloads
-            cookies = context.cookies()
-            cookie_header = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
-            req_headers = {
-                "Cookie": cookie_header,
-                "Referer": TIMETABLE_URL,
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            }
+        print(f"  Total entries fetched: {len(all_entries)}")
 
-            # Detect the working download URL pattern using the first entry
-            first = timetable_entries[0]
-            enc = first.get("encryptId", "")
-            att = first.get("attachmentId", "")
-            print(f"  First entry: encryptId={enc}, attachmentId={att}, fileName={first.get('fileName')}")
+        if not all_entries:
+            browser.close()
+            return []
 
-            url_patterns = [
-                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/getAttachment/{enc}",
-                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/download/{enc}",
-                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/attachment/{enc}",
-                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/attachment/{enc}",
-                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/getAttachment/{att}",
-                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/download/{att}",
-            ]
+        # Detect working PDF download URL using the first entry as a test
+        first = all_entries[0]
+        working_key = None
+        working_template = None
 
-            working_pattern = None
-            working_key = None
-            for pattern in url_patterns:
-                try:
-                    r = requests.get(pattern, headers=req_headers, verify=False, timeout=15)
-                    ct = r.headers.get("content-type", "")
-                    print(f"  {pattern} → {r.status_code} {ct[:50]}")
-                    if r.status_code == 200 and "pdf" in ct.lower():
-                        working_pattern = pattern
-                        # Determine which key to use (encryptId or attachmentId)
-                        working_key = "encryptId" if enc in pattern else "attachmentId"
-                        working_base = pattern.replace(enc, "{key}").replace(str(att), "{key}")
-                        print(f"  ✓ Working pattern found: {working_base}")
-                        break
-                except Exception as e:
-                    print(f"  {pattern} → ERROR: {e}")
+        print(f"  Testing PDF URL patterns for: {first.get('fileName')}")
+        for key_field, template in PDF_URL_PATTERNS:
+            key_val = first.get(key_field, "")
+            if not key_val:
+                continue
+            test_url = template.format(key_val)
+            try:
+                resp = context.request.get(test_url, timeout=15000)
+                ct = resp.headers.get("content-type", "")
+                print(f"  {test_url} → {resp.status} [{ct[:50]}]")
+                if resp.ok and "pdf" in ct.lower():
+                    working_key = key_field
+                    working_template = template
+                    print(f"  ✓ Working URL pattern: {template}")
+                    break
+            except Exception as e:
+                print(f"  {test_url} → ERROR: {e}")
 
-            if working_pattern:
-                for entry in timetable_entries:
-                    key_val = entry.get(working_key, "")
-                    url = working_base.replace("{key}", str(key_val))
-                    name = entry.get("timeTableTitle") or entry.get("title") or entry.get("fileName", "")
-                    links.append({"url": url, "name": name,
-                                  "req_headers": req_headers, "meta": entry})
-            else:
-                print("  Could not find working download URL — printing all patterns tried above")
+        if not working_template:
+            print("  Could not determine PDF download URL pattern")
+            browser.close()
+            return []
+
+        # Download all PDFs using the confirmed pattern
+        print(f"\n  Downloading {len(all_entries)} PDFs...")
+        for entry in all_entries:
+            key_val = entry.get(working_key, "")
+            if not key_val:
+                continue
+            url = working_template.format(key_val)
+            name = entry.get("timeTableTitle") or entry.get("title") or entry.get("fileName", "")
+            file_name = entry.get("fileName", "")
+
+            try:
+                resp = context.request.get(url, timeout=60000)
+                ct = resp.headers.get("content-type", "")
+                if resp.ok and "pdf" in ct.lower():
+                    results.append({
+                        "url": url,
+                        "name": name,
+                        "fileName": file_name,
+                        "pdf_bytes": resp.body(),
+                        "meta": entry,
+                    })
+                    print(f"  ✓ {file_name}")
+                else:
+                    print(f"  ✗ {file_name} — {resp.status} {ct[:40]}")
+            except Exception as e:
+                print(f"  ✗ {file_name} — {e}")
 
         browser.close()
 
-    # Deduplicate by URL
-    seen = set()
-    unique = []
-    for link in links:
-        if link["url"] not in seen:
-            seen.add(link["url"])
-            unique.append(link)
-    return unique
-
-
-def download_pdf(url, headers=None):
-    resp = requests.get(url, headers=headers, verify=False, timeout=60)
-    resp.raise_for_status()
-    return resp.content
+    return results
 
 
 def extract_text_from_pdf(pdf_bytes):
@@ -187,8 +165,8 @@ def extract_text_from_pdf(pdf_bytes):
     try:
         text = ""
         with pdfplumber.open(tmp_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
+            for pg in pdf.pages:
+                page_text = pg.extract_text()
                 if page_text:
                     text += page_text + "\n"
         return text.strip()
@@ -212,17 +190,14 @@ Extract every exam entry and return a JSON array. Each object must have:
 Rules:
 - Return ONLY a valid JSON array, no explanation or markdown fences.
 - If a field is not mentioned, use null.
-- If the document mentions a rescheduled exam, include it with a note.
+- Include rescheduled exams with a note explaining the change.
 
 Document title: {source_name}
 
 Text:
 {text[:10000]}"""
 
-    response = client.models.generate_content(
-        model="gemini-1.5-flash",
-        contents=prompt,
-    )
+    response = client.models.generate_content(model="gemini-1.5-flash", contents=prompt)
     raw = response.text.strip()
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw)
@@ -244,17 +219,11 @@ def save_json(path, data):
 
 
 def push_file_to_github(file_path, content_str, token, repo):
-    """Push a file to GitHub via the Contents API — no git required."""
     import base64
     api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github+json",
-    }
-    # Get current SHA (required for update)
+    headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github+json"}
     resp = requests.get(api_url, headers=headers, timeout=15)
     sha = resp.json().get("sha", "") if resp.status_code == 200 else ""
-
     payload = {
         "message": f"chore: update {file_path}",
         "content": base64.b64encode(content_str.encode("utf-8")).decode("ascii"),
@@ -262,88 +231,67 @@ def push_file_to_github(file_path, content_str, token, repo):
     }
     put_resp = requests.put(api_url, headers=headers, json=payload, timeout=15)
     if put_resp.status_code not in (200, 201):
-        print(f"  WARNING: GitHub API push failed for {file_path}: {put_resp.status_code} {put_resp.text[:200]}")
+        print(f"  WARNING: GitHub push failed for {file_path}: {put_resp.status_code}")
     else:
-        print(f"  Pushed {file_path} to GitHub via API")
+        print(f"  Pushed {file_path} to GitHub")
 
 
 def main():
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable not set")
-
     gemini = genai.Client(api_key=api_key)
 
-    print("Fetching PDF links from KTU API directly...")
-    try:
-        links = fetch_pdf_links_from_api()
-        print(f"Found {len(links)} PDF link(s) via API")
-    except Exception as e:
-        print(f"Direct API failed ({e}), falling back to browser scrape...")
-        links = fetch_pdf_links()
-        print(f"Found {len(links)} PDF link(s) via browser")
+    print("Fetching KTU timetable PDFs (all pages)...")
+    pdf_items = fetch_all_timetable_pdfs()
+    print(f"\nTotal downloadable PDFs: {len(pdf_items)}")
 
-    if not links:
-        print("No PDF links found. The page structure may have changed.")
-        print("Saving empty data file so the calendar still loads cleanly.")
-        existing = load_json(DATA_FILE, {"last_updated": None, "sources": [], "exams": []})
-        existing["last_updated"] = datetime.now(timezone.utc).isoformat()
-        save_json(DATA_FILE, existing)
+    if not pdf_items:
+        print("No PDFs available. Exiting.")
         return
 
     hashes = load_json(HASHES_FILE, {})
     existing_data = load_json(DATA_FILE, {"last_updated": None, "sources": [], "exams": []})
-
-    existing_by_source = {}
+    existing_by_url = {}
     for exam in existing_data.get("exams", []):
-        src = exam.get("source_url")
-        existing_by_source.setdefault(src, []).append(exam)
+        existing_by_url.setdefault(exam.get("source_url"), []).append(exam)
 
     all_exams = []
     sources = []
     any_changed = False
 
-    for link in links:
-        url = link["url"]
-        name = link["name"] or url.split("/")[-1]
-        print(f"\nChecking: {name}")
+    for item in pdf_items:
+        url = item["url"]
+        name = item["name"]
+        file_name = item["fileName"]
+        pdf_bytes = item["pdf_bytes"]
+        pdf_hash = hashlib.md5(pdf_bytes).hexdigest()
 
-        try:
-            pdf_bytes = download_pdf(url, headers=link.get("req_headers"))
-            pdf_hash = hashlib.md5(pdf_bytes).hexdigest()
-
-            if hashes.get(url) == pdf_hash:
-                print("  Unchanged — reusing cached data")
-                all_exams.extend(existing_by_source.get(url, []))
-                sources.append({"url": url, "name": name, "hash": pdf_hash})
-                continue
-
-            print("  New or updated PDF — extracting text...")
-            text = extract_text_from_pdf(pdf_bytes)
-
-            if not text:
-                print("  No text extracted (possibly a scanned image PDF — skipping)")
-                sources.append({"url": url, "name": name, "hash": pdf_hash, "warning": "scanned_pdf"})
-                hashes[url] = pdf_hash
-                any_changed = True
-                continue
-
-            print("  Parsing with Gemini...")
-            exams = parse_with_gemini(gemini, text, name)
-
-            for exam in exams:
-                exam["source_url"] = url
-                exam["source_name"] = name
-
-            all_exams.extend(exams)
-            hashes[url] = pdf_hash
+        if hashes.get(url) == pdf_hash:
+            print(f"Unchanged: {file_name}")
+            all_exams.extend(existing_by_url.get(url, []))
             sources.append({"url": url, "name": name, "hash": pdf_hash})
-            any_changed = True
-            print(f"  Extracted {len(exams)} exam entries")
+            continue
 
-        except Exception as e:
-            print(f"  ERROR: {e}")
-            all_exams.extend(existing_by_source.get(url, []))
+        print(f"New/updated: {file_name}")
+        text = extract_text_from_pdf(pdf_bytes)
+
+        if not text:
+            print("  No text extracted (scanned PDF?) — skipping")
+            sources.append({"url": url, "name": name, "hash": pdf_hash, "warning": "scanned_pdf"})
+            hashes[url] = pdf_hash
+            any_changed = True
+            continue
+
+        exams = parse_with_gemini(gemini, text, name)
+        for exam in exams:
+            exam["source_url"] = url
+            exam["source_name"] = name
+        all_exams.extend(exams)
+        hashes[url] = pdf_hash
+        sources.append({"url": url, "name": name, "hash": pdf_hash})
+        any_changed = True
+        print(f"  Extracted {len(exams)} exam entries")
 
     if any_changed:
         new_data = {
@@ -355,19 +303,18 @@ def main():
         save_json(HASHES_FILE, hashes)
         print(f"\nSaved {len(all_exams)} total exam entries to data/exams.json")
 
-        # Push via GitHub API if running inside GitHub Actions
         gh_token = os.environ.get("GITHUB_TOKEN")
         gh_repo = os.environ.get("GITHUB_REPOSITORY")
         if gh_token and gh_repo:
-            print("Pushing updated data files to GitHub via API...")
-            exams_str = json.dumps(new_data, indent=2, ensure_ascii=False)
-            hashes_str = json.dumps(hashes, indent=2, ensure_ascii=False)
-            push_file_to_github("data/exams.json", exams_str, gh_token, gh_repo)
-            push_file_to_github("data/pdf_hashes.json", hashes_str, gh_token, gh_repo)
-        else:
-            print("(Not in GitHub Actions — skipping API push)")
+            print("Pushing updated files to GitHub...")
+            push_file_to_github("data/exams.json",
+                                 json.dumps(new_data, indent=2, ensure_ascii=False),
+                                 gh_token, gh_repo)
+            push_file_to_github("data/pdf_hashes.json",
+                                 json.dumps(hashes, indent=2, ensure_ascii=False),
+                                 gh_token, gh_repo)
     else:
-        print("\nNo changes detected — data/exams.json unchanged")
+        print("No changes — data/exams.json unchanged")
 
 
 if __name__ == "__main__":
