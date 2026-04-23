@@ -72,30 +72,22 @@ def fetch_pdf_links():
         context = browser.new_context(ignore_https_errors=True)
         page = context.new_page()
 
-        timetable_json = []
+        timetable_entries = []
 
-        # Intercept every network response to catch PDFs loaded via API
         def handle_response(response):
             url = response.url
             try:
                 content_type = response.headers.get("content-type", "")
-                if "json" in content_type and "ktu.edu.in" in url:
+                if "json" in content_type and "anon/timetable" in url and "Weblogs" not in url:
                     api_calls.append(url)
-                    # Specifically capture the timetable endpoint response
-                    if "anon/timetable" in url and "Weblogs" not in url:
-                        body = response.text()
-                        print(f"\n  === TIMETABLE API RESPONSE ===")
-                        print(f"  URL: {url}")
-                        print(f"  First 1500 chars: {body[:1500]}")
-                        print(f"  ==============================\n")
-                        try:
-                            data = response.json()
-                            if isinstance(data, list):
-                                timetable_json.extend(data)
-                            elif isinstance(data, dict):
-                                timetable_json.append(data)
-                        except Exception:
-                            pass
+                    try:
+                        data = response.json()
+                        # The response is {"content": [...], "pageable": ...}
+                        entries = data.get("content", []) if isinstance(data, dict) else data
+                        timetable_entries.extend(entries)
+                        print(f"  Captured {len(entries)} timetable entries from API")
+                    except Exception as e:
+                        print(f"  JSON parse error: {e}")
             except Exception:
                 pass
 
@@ -116,34 +108,59 @@ def fetch_pdf_links():
         page.wait_for_timeout(3000)
 
         print(f"  Page title: {page.title()}")
-        print(f"  API calls intercepted: {len(api_calls)}")
-        print(f"  Timetable entries captured: {len(timetable_json)}")
+        print(f"  Timetable entries captured: {len(timetable_entries)}")
 
-        # Build links from the captured timetable JSON
-        if timetable_json:
-            print(f"  First entry keys: {list(timetable_json[0].keys()) if isinstance(timetable_json[0], dict) else timetable_json[0]}")
-            for entry in timetable_json:
-                if not isinstance(entry, dict):
-                    continue
-                # Try every possible field name that could hold a URL or filename
-                for key, val in entry.items():
-                    if isinstance(val, str) and val.lower().endswith(".pdf"):
-                        url = val if val.startswith("http") else f"https://api.ktu.edu.in/ktu-web-portal-api/{val.lstrip('/')}"
-                        name = entry.get("title") or entry.get("name") or entry.get("subject") or val.split("/")[-1]
-                        links.append({"url": url, "name": name, "entry": entry})
-                        print(f"  Found PDF field '{key}': {url}")
+        if timetable_entries:
+            # Get browser cookies to use for authenticated PDF downloads
+            cookies = context.cookies()
+            cookie_header = "; ".join([f"{c['name']}={c['value']}" for c in cookies])
+            req_headers = {
+                "Cookie": cookie_header,
+                "Referer": TIMETABLE_URL,
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            }
 
-        # Also grab PDF links directly from DOM as fallback
-        anchors = page.eval_on_selector_all(
-            "a",
-            """els => els
-                .filter(el => el.href && el.href.toLowerCase().includes('.pdf'))
-                .map(el => ({ url: el.href, name: el.innerText.trim() || el.href.split('/').pop() }))
-            """
-        )
-        if anchors:
-            print(f"  PDF links in DOM: {len(anchors)}")
-            links.extend(anchors)
+            # Detect the working download URL pattern using the first entry
+            first = timetable_entries[0]
+            enc = first.get("encryptId", "")
+            att = first.get("attachmentId", "")
+            print(f"  First entry: encryptId={enc}, attachmentId={att}, fileName={first.get('fileName')}")
+
+            url_patterns = [
+                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/getAttachment/{enc}",
+                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/download/{enc}",
+                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/attachment/{enc}",
+                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/attachment/{enc}",
+                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/getAttachment/{att}",
+                f"https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/download/{att}",
+            ]
+
+            working_pattern = None
+            working_key = None
+            for pattern in url_patterns:
+                try:
+                    r = requests.get(pattern, headers=req_headers, verify=False, timeout=15)
+                    ct = r.headers.get("content-type", "")
+                    print(f"  {pattern} → {r.status_code} {ct[:50]}")
+                    if r.status_code == 200 and "pdf" in ct.lower():
+                        working_pattern = pattern
+                        # Determine which key to use (encryptId or attachmentId)
+                        working_key = "encryptId" if enc in pattern else "attachmentId"
+                        working_base = pattern.replace(enc, "{key}").replace(str(att), "{key}")
+                        print(f"  ✓ Working pattern found: {working_base}")
+                        break
+                except Exception as e:
+                    print(f"  {pattern} → ERROR: {e}")
+
+            if working_pattern:
+                for entry in timetable_entries:
+                    key_val = entry.get(working_key, "")
+                    url = working_base.replace("{key}", str(key_val))
+                    name = entry.get("timeTableTitle") or entry.get("title") or entry.get("fileName", "")
+                    links.append({"url": url, "name": name,
+                                  "req_headers": req_headers, "meta": entry})
+            else:
+                print("  Could not find working download URL — printing all patterns tried above")
 
         browser.close()
 
@@ -157,8 +174,8 @@ def fetch_pdf_links():
     return unique
 
 
-def download_pdf(url):
-    resp = requests.get(url, verify=False, timeout=60)
+def download_pdf(url, headers=None):
+    resp = requests.get(url, headers=headers, verify=False, timeout=60)
     resp.raise_for_status()
     return resp.content
 
@@ -292,7 +309,7 @@ def main():
         print(f"\nChecking: {name}")
 
         try:
-            pdf_bytes = download_pdf(url)
+            pdf_bytes = download_pdf(url, headers=link.get("req_headers"))
             pdf_hash = hashlib.md5(pdf_bytes).hexdigest()
 
             if hashes.get(url) == pdf_hash:
