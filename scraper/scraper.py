@@ -20,6 +20,47 @@ DATA_FILE = ROOT / "data" / "exams.json"
 HASHES_FILE = ROOT / "data" / "pdf_hashes.json"
 
 
+KTU_API = "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable"
+
+
+def fetch_pdf_links_from_api():
+    """Call the KTU timetable API directly and extract PDF download URLs."""
+    resp = requests.get(KTU_API, verify=False, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+
+    # Print raw structure so we can see the shape of the data
+    print(f"  API returned {len(data) if isinstance(data, list) else type(data).__name__}")
+    if isinstance(data, list) and data:
+        print(f"  First entry keys: {list(data[0].keys()) if isinstance(data[0], dict) else data[0]}")
+        print(f"  First entry: {json.dumps(data[0], indent=2)[:500]}")
+    elif isinstance(data, dict):
+        print(f"  Response keys: {list(data.keys())}")
+        print(f"  Response: {json.dumps(data, indent=2)[:500]}")
+
+    links = []
+    entries = data if isinstance(data, list) else data.get("data", data.get("results", data.get("content", [])))
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        # Try common field names for the file URL
+        url = (entry.get("attachmentUrl") or entry.get("fileUrl") or
+               entry.get("file_url") or entry.get("url") or
+               entry.get("pdfUrl") or entry.get("pdf_url") or
+               entry.get("link") or entry.get("documentUrl"))
+        # Try common field names for the filename
+        filename = (entry.get("attachmentName") or entry.get("fileName") or
+                    entry.get("file_name") or entry.get("name") or
+                    entry.get("title") or "")
+        if url:
+            if not url.startswith("http"):
+                url = f"https://api.ktu.edu.in/{url.lstrip('/')}"
+            links.append({"url": url, "name": filename})
+
+    return links
+
+
 def fetch_pdf_links():
     """Use a headless browser with network interception to collect PDF links."""
     links = []
@@ -205,9 +246,14 @@ def main():
 
     gemini = genai.Client(api_key=api_key)
 
-    print("Fetching PDF links from KTU timetable page...")
-    links = fetch_pdf_links()
-    print(f"Found {len(links)} PDF link(s)")
+    print("Fetching PDF links from KTU API directly...")
+    try:
+        links = fetch_pdf_links_from_api()
+        print(f"Found {len(links)} PDF link(s) via API")
+    except Exception as e:
+        print(f"Direct API failed ({e}), falling back to browser scrape...")
+        links = fetch_pdf_links()
+        print(f"Found {len(links)} PDF link(s) via browser")
 
     if not links:
         print("No PDF links found. The page structure may have changed.")
