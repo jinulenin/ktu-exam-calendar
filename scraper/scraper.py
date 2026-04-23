@@ -90,7 +90,7 @@ def fetch_all_timetable_pdfs():
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(ignore_https_errors=True)
+        context = browser.new_context(ignore_https_errors=True, accept_downloads=True)
         page = context.new_page()
 
         all_entries = []
@@ -133,55 +133,83 @@ def fetch_all_timetable_pdfs():
 
         total_pages = first_page_data.get("totalPages", 1)
         print(f"  Page 1 loaded. Total pages: {total_pages}")
-
-        # Wait for the timetable table to actually render in DOM
-        print("  Waiting for table to render...")
-        for selector in ["table", "mat-table", "tr", ".cdk-row", "[mat-row]", "tbody tr", "mat-row"]:
-            try:
-                page.wait_for_selector(selector, timeout=8000)
-                print(f"  Table found via selector: '{selector}'")
-                break
-            except Exception:
-                pass
-
-        # Scroll down to ensure content is visible
-        page.evaluate("window.scrollTo(0, 600)")
         page.wait_for_timeout(2000)
 
-        # Print ALL elements to understand full page structure
-        elements = page.eval_on_selector_all(
-            "button, a, mat-icon, [role='button'], td, th, mat-cell, mat-header-cell",
-            "els => els.map(el => ({tag: el.tagName, text: el.textContent.trim().slice(0,50), cls: el.className.slice(0,70), aria: el.getAttribute('aria-label')||''}))"
-        )
-        print(f"\n  ALL interactive/table elements ({len(elements)} total):")
-        for el in elements:
-            print(f"    {el['tag']} | text='{el['text']}' | aria='{el['aria']}' | class='{el['cls'][:50]}'")
+        # Collect entries from all pages by clicking through pagination
+        current_page = 1
+        while current_page < total_pages:
+            next_link = page.locator("a[aria-label='Next page']")
+            if next_link.count() == 0:
+                break
+            entries_before = len(all_entries)
+            next_link.first.click()
+            # Wait until API response comes back with new entries
+            for _ in range(20):
+                page.wait_for_timeout(500)
+                if len(all_entries) > entries_before:
+                    break
+            current_page += 1
+            print(f"  Navigated to page {current_page}, total entries: {len(all_entries)}")
+            if current_page >= total_pages:
+                break
 
-        # Try clicking what looks like a download/view button for the first row
-        print("\n  Trying to click download/view buttons...")
-        for selector in [
-            "button[aria-label='View']", "button[aria-label='Download']",
-            "button[aria-label='view']", "button[aria-label='download']",
-            "mat-icon:text('visibility')", "mat-icon:text('get_app')",
-            "mat-icon:text('download')", "mat-icon:text('picture_as_pdf')",
-            "td button", "tr button", ".mat-icon-button", "button.mat-mdc-icon-button",
-        ]:
-            try:
-                loc = page.locator(selector)
-                count = loc.count()
-                if count > 0:
-                    print(f"  Found {count} elements for '{selector}' — clicking first")
-                    before = len(pdf_requests_captured)
-                    loc.first.click()
-                    page.wait_for_timeout(3000)
-                    if len(pdf_requests_captured) > before:
-                        print(f"  ✓ Click triggered PDF request!")
-                        break
-            except Exception as e:
-                pass
+        print(f"\n  Total entries across all pages: {len(all_entries)}")
 
-        print(f"\n  Total PDF requests captured via clicks: {len(pdf_requests_captured)}")
-        print(f"  PDF request URLs: {pdf_requests_captured}")
+        # Navigate back to page 1 to start clicking download buttons
+        page.goto(TIMETABLE_URL, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(4000)
+
+        BUTTON_SEL = "button.btn-md.bg-light.border"
+        downloaded_urls = set()
+        page_num = 1
+
+        while True:
+            buttons = page.locator(BUTTON_SEL)
+            count = buttons.count()
+            print(f"\n  Page {page_num}: {count} buttons found")
+
+            for i in range(count):
+                btn = buttons.nth(i)
+                btn_text = btn.text_content().strip()[:60]
+                print(f"  Clicking: '{btn_text}'")
+
+                try:
+                    with page.expect_download(timeout=15000) as dl_info:
+                        btn.click()
+                    dl = dl_info.value
+                    dl.save_as(dl.suggested_filename)
+                    pdf_b = Path(dl.suggested_filename).read_bytes()
+                    Path(dl.suggested_filename).unlink(missing_ok=True)
+                    url = dl.url
+
+                    if url in downloaded_urls:
+                        print(f"    Already downloaded, skipping")
+                        continue
+                    downloaded_urls.add(url)
+
+                    # Match to entry metadata by button index on this page
+                    entry_index = (page_num - 1) * 10 + i
+                    entry = all_entries[entry_index] if entry_index < len(all_entries) else {}
+
+                    results.append({
+                        "url": url,
+                        "name": btn_text,
+                        "fileName": entry.get("fileName", dl.suggested_filename),
+                        "pdf_bytes": pdf_b,
+                        "meta": entry,
+                    })
+                    print(f"    ✓ {dl.suggested_filename} ({len(pdf_b):,} bytes)")
+
+                except Exception as e:
+                    print(f"    ✗ Download failed: {e}")
+
+            # Go to next page
+            next_link = page.locator("a[aria-label='Next page']")
+            if next_link.count() == 0 or page_num >= total_pages:
+                break
+            next_link.first.click()
+            page.wait_for_timeout(3000)
+            page_num += 1
 
         browser.close()
 
