@@ -2,9 +2,8 @@ name: Scrape KTU Timetable
 
 on:
   schedule:
-    # Runs every 6 hours
     - cron: "0 */6 * * *"
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,6 +11,8 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repository
@@ -30,6 +31,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r scraper/requirements.txt
+
+      - name: Install Playwright browser
+        run: playwright install chromium --with-deps
 
       - name: Run scraper
         env:
