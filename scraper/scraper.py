@@ -140,6 +140,30 @@ def save_json(path, data):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def push_file_to_github(file_path, content_str, token, repo):
+    """Push a file to GitHub via the Contents API — no git required."""
+    import base64
+    api_url = f"https://api.github.com/repos/{repo}/contents/{file_path}"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    # Get current SHA (required for update)
+    resp = requests.get(api_url, headers=headers, timeout=15)
+    sha = resp.json().get("sha", "") if resp.status_code == 200 else ""
+
+    payload = {
+        "message": f"chore: update {file_path}",
+        "content": base64.b64encode(content_str.encode("utf-8")).decode("ascii"),
+        "sha": sha,
+    }
+    put_resp = requests.put(api_url, headers=headers, json=payload, timeout=15)
+    if put_resp.status_code not in (200, 201):
+        print(f"  WARNING: GitHub API push failed for {file_path}: {put_resp.status_code} {put_resp.text[:200]}")
+    else:
+        print(f"  Pushed {file_path} to GitHub via API")
+
+
 def main():
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -222,6 +246,18 @@ def main():
         save_json(DATA_FILE, new_data)
         save_json(HASHES_FILE, hashes)
         print(f"\nSaved {len(all_exams)} total exam entries to data/exams.json")
+
+        # Push via GitHub API if running inside GitHub Actions
+        gh_token = os.environ.get("GITHUB_TOKEN")
+        gh_repo = os.environ.get("GITHUB_REPOSITORY")
+        if gh_token and gh_repo:
+            print("Pushing updated data files to GitHub via API...")
+            exams_str = json.dumps(new_data, indent=2, ensure_ascii=False)
+            hashes_str = json.dumps(hashes, indent=2, ensure_ascii=False)
+            push_file_to_github("data/exams.json", exams_str, gh_token, gh_repo)
+            push_file_to_github("data/pdf_hashes.json", hashes_str, gh_token, gh_repo)
+        else:
+            print("(Not in GitHub Actions — skipping API push)")
     else:
         print("\nNo changes detected — data/exams.json unchanged")
 
