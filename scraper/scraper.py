@@ -306,7 +306,7 @@ Document title: {source_name}
 Text:
 {text[:10000]}"""
 
-    for attempt in range(5):
+    for attempt in range(3):
         try:
             response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
             raw = response.text.strip()
@@ -315,14 +315,17 @@ Text:
             match = re.search(r"\[.*\]", raw, re.DOTALL)
             return json.loads(match.group()) if match else []
         except Exception as e:
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                wait = 60 * (attempt + 1)
-                print(f"  Rate limited — waiting {wait}s before retry {attempt + 1}/5...")
-                time.sleep(wait)
+            err = str(e)
+            if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                # Daily quota exhausted — no point retrying, raise so main() can stop
+                if "limit: 0" in err or attempt == 2:
+                    raise RuntimeError("QUOTA_EXHAUSTED") from e
+                # Per-minute limit — short wait then retry
+                print(f"  Rate limited — waiting 65s (attempt {attempt + 1}/3)...")
+                time.sleep(65)
             else:
                 print(f"  Gemini error: {e}")
                 return []
-    print("  Gemini quota exhausted after retries — skipping this PDF")
     return []
 
 
@@ -403,7 +406,15 @@ def main():
             continue
 
         time.sleep(5)  # Stay under 15 requests/minute free tier limit
-        exams = parse_with_gemini(gemini, text, name)
+        try:
+            exams = parse_with_gemini(gemini, text, name)
+        except RuntimeError as quota_err:
+            if "QUOTA_EXHAUSTED" in str(quota_err):
+                print("  Daily Gemini quota exhausted — saving progress and stopping.")
+                any_changed = True
+                break
+            raise
+
         for exam in exams:
             exam["source_url"] = url
             exam["source_name"] = name
@@ -413,8 +424,8 @@ def main():
         any_changed = True
         print(f"  Extracted {len(exams)} exam entries")
 
-        # Save progress incrementally every 10 PDFs so reruns don't restart from scratch
-        if len(sources) % 10 == 0:
+        # Save progress every 5 PDFs so reruns skip already-processed ones
+        if len(sources) % 5 == 0:
             partial = {
                 "last_updated": datetime.now(timezone.utc).isoformat(),
                 "sources": sources,
