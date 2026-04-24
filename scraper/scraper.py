@@ -5,6 +5,7 @@ import tempfile
 import re
 import warnings
 import base64
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,16 +22,37 @@ ROOT = Path(__file__).parent.parent
 DATA_FILE = ROOT / "data" / "exams.json"
 HASHES_FILE = ROOT / "data" / "pdf_hashes.json"
 
-# URL patterns to test for PDF downloads (in order of likelihood)
-PDF_URL_PATTERNS = [
-    ("encryptId",    "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/getAttachment/{}"),
-    ("encryptId",    "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/download/{}"),
-    ("encryptId",    "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/attachment/{}"),
-    ("encryptId",    "https://api.ktu.edu.in/ktu-web-portal-api/anon/attachment/{}"),
-    ("attachmentId", "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/getAttachment/{}"),
-    ("attachmentId", "https://api.ktu.edu.in/ktu-web-portal-api/anon/timetable/download/{}"),
-    ("attachmentId", "https://api.ktu.edu.in/ktu-web-portal-api/anon/attachment/{}"),
-]
+# Only process notifications from this date onwards (YYYY-MM-DD)
+CUTOFF_DATE = "2026-01-01"
+
+# Only include these courses (case-insensitive, checked against entry title)
+INCLUDE_COURSES = ["b.tech", "btech", "bca"]
+
+# Exclude these even if an include keyword appears
+EXCLUDE_COURSES = ["mba", "b.arch", "barch", "b.des", "bdes", "bhmct",
+                   "m.tech", "mtech", "mca", "phd", "m.sc", "msc"]
+
+
+def is_relevant(entry):
+    """Return True if this timetable entry should be downloaded and parsed."""
+    # Date filter — skip anything before the cutoff
+    created = entry.get("createdDate", "")
+    if created and created[:10] < CUTOFF_DATE:
+        return False
+
+    # Course filter — must mention B.Tech or BCA, must not be another course only
+    text = (
+        (entry.get("timeTableTitle") or "") + " " +
+        (entry.get("title") or "") + " " +
+        (entry.get("details") or "")
+    ).lower()
+
+    if any(kw in text for kw in EXCLUDE_COURSES):
+        return False
+    if not any(kw in text for kw in INCLUDE_COURSES):
+        return False
+
+    return True
 
 
 def browser_fetch_json(page, url, extra_headers=None):
@@ -135,25 +157,35 @@ def fetch_all_timetable_pdfs():
         print(f"  Page 1 loaded. Total pages: {total_pages}")
         page.wait_for_timeout(2000)
 
-        # Collect entries from all pages by clicking through pagination
+        # Collect entries from pages — stop early once we hit old entries
         current_page = 1
-        while current_page < total_pages:
+        stop_early = False
+        while current_page < total_pages and not stop_early:
             next_link = page.locator("a[aria-label='Next page']")
             if next_link.count() == 0:
                 break
             entries_before = len(all_entries)
             next_link.first.click()
-            # Wait until API response comes back with new entries
             for _ in range(20):
                 page.wait_for_timeout(500)
                 if len(all_entries) > entries_before:
                     break
             current_page += 1
-            print(f"  Navigated to page {current_page}, total entries: {len(all_entries)}")
-            if current_page >= total_pages:
-                break
+            new_entries = all_entries[entries_before:]
+            # Stop if ALL entries on this page are before the cutoff
+            if new_entries and all(
+                (e.get("createdDate") or "9999")[:10] < CUTOFF_DATE
+                for e in new_entries
+            ):
+                print(f"  Page {current_page}: all entries before {CUTOFF_DATE} — stopping pagination")
+                stop_early = True
+            else:
+                print(f"  Page {current_page}: +{len(new_entries)} entries (total {len(all_entries)})")
 
-        print(f"\n  Total entries across all pages: {len(all_entries)}")
+        # Apply filters
+        relevant = [e for e in all_entries if is_relevant(e)]
+        print(f"\n  Total entries: {len(all_entries)} → after filtering: {len(relevant)} relevant")
+        print(f"  (date ≥ {CUTOFF_DATE}, courses: B.Tech / BCA only)")
 
         # Navigate back to page 1 to start clicking download buttons
         page.goto(TIMETABLE_URL, wait_until="domcontentloaded", timeout=60000)
@@ -166,11 +198,22 @@ def fetch_all_timetable_pdfs():
         while True:
             buttons = page.locator(BUTTON_SEL)
             count = buttons.count()
-            print(f"\n  Page {page_num}: {count} buttons found")
+            print(f"\n  Page {page_num}: {count} buttons")
 
             for i in range(count):
                 btn = buttons.nth(i)
-                btn_text = btn.text_content().strip()[:60]
+                btn_text_full = btn.text_content().strip()
+                btn_lower = btn_text_full.lower()
+
+                # Skip non-B.Tech/BCA entries right here (by button text)
+                if not any(kw in btn_lower for kw in INCLUDE_COURSES):
+                    print(f"  Skip (not B.Tech/BCA): '{btn_text_full[:50]}'")
+                    continue
+                if any(kw in btn_lower for kw in EXCLUDE_COURSES):
+                    print(f"  Skip (excluded): '{btn_text_full[:50]}'")
+                    continue
+
+                btn_text = btn_text_full[:60]
                 print(f"  Clicking: '{btn_text}'")
 
                 try:
@@ -203,7 +246,15 @@ def fetch_all_timetable_pdfs():
                 except Exception as e:
                     print(f"    ✗ Download failed: {e}")
 
-            # Go to next page
+            # Stop paginating if we've reached old entries
+            last_entries_on_page = all_entries[(page_num - 1) * 10: page_num * 10]
+            if last_entries_on_page and all(
+                (e.get("createdDate") or "9999")[:10] < CUTOFF_DATE
+                for e in last_entries_on_page
+            ):
+                print(f"  All entries on page {page_num} are before {CUTOFF_DATE} — done")
+                break
+
             next_link = page.locator("a[aria-label='Next page']")
             if next_link.count() == 0 or page_num >= total_pages:
                 break
@@ -255,13 +306,23 @@ Document title: {source_name}
 Text:
 {text[:10000]}"""
 
-    response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
-    raw = response.text.strip()
-    raw = re.sub(r"^```[a-z]*\n?", "", raw)
-    raw = re.sub(r"\n?```$", "", raw)
-    match = re.search(r"\[.*\]", raw, re.DOTALL)
-    if match:
-        return json.loads(match.group())
+    for attempt in range(5):
+        try:
+            response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt)
+            raw = response.text.strip()
+            raw = re.sub(r"^```[a-z]*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            match = re.search(r"\[.*\]", raw, re.DOTALL)
+            return json.loads(match.group()) if match else []
+        except Exception as e:
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                wait = 60 * (attempt + 1)
+                print(f"  Rate limited — waiting {wait}s before retry {attempt + 1}/5...")
+                time.sleep(wait)
+            else:
+                print(f"  Gemini error: {e}")
+                return []
+    print("  Gemini quota exhausted after retries — skipping this PDF")
     return []
 
 
@@ -341,6 +402,7 @@ def main():
             any_changed = True
             continue
 
+        time.sleep(5)  # Stay under 15 requests/minute free tier limit
         exams = parse_with_gemini(gemini, text, name)
         for exam in exams:
             exam["source_url"] = url
@@ -350,6 +412,17 @@ def main():
         sources.append({"url": url, "name": name, "hash": pdf_hash})
         any_changed = True
         print(f"  Extracted {len(exams)} exam entries")
+
+        # Save progress incrementally every 10 PDFs so reruns don't restart from scratch
+        if len(sources) % 10 == 0:
+            partial = {
+                "last_updated": datetime.now(timezone.utc).isoformat(),
+                "sources": sources,
+                "exams": all_exams,
+            }
+            save_json(DATA_FILE, partial)
+            save_json(HASHES_FILE, hashes)
+            print(f"  [checkpoint] saved {len(all_exams)} exams so far")
 
     if any_changed:
         new_data = {
