@@ -187,6 +187,11 @@ def fetch_all_timetable_pdfs():
         print(f"\n  Total entries: {len(all_entries)} → after filtering: {len(relevant)} relevant")
         print(f"  (date ≥ {CUTOFF_DATE}, courses: B.Tech / BCA only)")
 
+        # Save a snapshot of all entries before re-navigation
+        # (re-navigating would trigger more API responses and duplicate all_entries)
+        entry_snapshot = list(all_entries)
+        all_entries.clear()
+
         # Navigate back to page 1 to start clicking download buttons
         page.goto(TIMETABLE_URL, wait_until="domcontentloaded", timeout=60000)
         page.wait_for_timeout(4000)
@@ -203,14 +208,14 @@ def fetch_all_timetable_pdfs():
             for i in range(count):
                 btn = buttons.nth(i)
                 btn_text_full = btn.text_content().strip()
-                btn_lower = btn_text_full.lower()
 
-                # Skip non-B.Tech/BCA entries right here (by button text)
-                if not any(kw in btn_lower for kw in INCLUDE_COURSES):
-                    print(f"  Skip (not B.Tech/BCA): '{btn_text_full[:50]}'")
-                    continue
-                if any(kw in btn_lower for kw in EXCLUDE_COURSES):
-                    print(f"  Skip (excluded): '{btn_text_full[:50]}'")
+                # Match to API entry by page/button position for relevance check
+                # (button text is often generic — don't rely on it for filtering)
+                entry_index = (page_num - 1) * 10 + i
+                entry = entry_snapshot[entry_index] if entry_index < len(entry_snapshot) else {}
+                if not is_relevant(entry):
+                    title = (entry.get("timeTableTitle") or entry.get("title") or btn_text_full)[:60]
+                    print(f"  Skip (not relevant): '{title}'")
                     continue
 
                 btn_text = btn_text_full[:60]
@@ -230,10 +235,6 @@ def fetch_all_timetable_pdfs():
                         continue
                     downloaded_urls.add(url)
 
-                    # Match to entry metadata by button index on this page
-                    entry_index = (page_num - 1) * 10 + i
-                    entry = all_entries[entry_index] if entry_index < len(all_entries) else {}
-
                     results.append({
                         "url": url,
                         "name": btn_text,
@@ -246,8 +247,8 @@ def fetch_all_timetable_pdfs():
                 except Exception as e:
                     print(f"    ✗ Download failed: {e}")
 
-            # Stop paginating if we've reached old entries
-            last_entries_on_page = all_entries[(page_num - 1) * 10: page_num * 10]
+            # Stop paginating if all entries on this page predate the cutoff
+            last_entries_on_page = entry_snapshot[(page_num - 1) * 10: page_num * 10]
             if last_entries_on_page and all(
                 (e.get("createdDate") or "9999")[:10] < CUTOFF_DATE
                 for e in last_entries_on_page
