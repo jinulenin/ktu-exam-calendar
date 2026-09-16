@@ -1,233 +1,233 @@
 {
-  "last_updated": "2026-09-16T10:46:24.733271+00:00",
+  "last_updated": "2026-09-16T16:02:17.979796+00:00",
   "sources": [
     {
-      "url": "blob:https://ktu.edu.in/094cb0d0-081e-4973-b8a9-f2ad70a0f5e9",
+      "url": "blob:https://ktu.edu.in/72f1b0d2-bb92-42e9-9843-456b59cd4a20",
       "name": "B.Tech S2 (PT) (S, FE) Exam May 2026 (2019 Scheme) - Resched",
       "hash": "11c55bcfe021e73723863336be59366a"
     },
     {
-      "url": "blob:https://ktu.edu.in/226e39f7-0a76-4f30-89dd-a4d171872d08",
+      "url": "blob:https://ktu.edu.in/2ed96f19-d0fe-4573-8244-b3d2bc7d98c2",
       "name": "B.Tech S4 CHALLENGE COURSE (2024 Scheme)",
       "hash": "53600cd905805815512a8cc48aa1e1da"
     },
     {
-      "url": "blob:https://ktu.edu.in/c58884c9-129f-46af-88fd-384d910e614e",
+      "url": "blob:https://ktu.edu.in/f924b363-184d-49a0-9e86-6411324a75ec",
       "name": "b.tech s3 part time (2019 scheme)",
       "hash": "877fcd3d684f68cced05ce20c886c990"
     },
     {
-      "url": "blob:https://ktu.edu.in/b7f95ae6-974c-4292-8b05-885c5ded4a49",
+      "url": "blob:https://ktu.edu.in/5921896e-fd58-4781-926f-62adc518eb8e",
       "name": "B.TECH S5 (2019 SCHEME)",
       "hash": "4cd66357e0f4024391972bd9b02069c2"
     },
     {
-      "url": "blob:https://ktu.edu.in/a8061ca4-1811-4404-990d-e8fb7885f98a",
+      "url": "blob:https://ktu.edu.in/b935e9cd-272c-4fd7-abc0-e861a1487385",
       "name": "revised b.tech s4 part time",
       "hash": "88d2a2457851f0ee67b7a8dbd81e84df"
     },
     {
-      "url": "blob:https://ktu.edu.in/24a9d454-4e31-4034-ac52-cb2e92208ad8",
+      "url": "blob:https://ktu.edu.in/ce7a912a-c35d-4009-aea0-a2816d18834f",
       "name": "b.tech s4 minor",
       "hash": "3d4aab853c703859812e959a1d603ec2"
     },
     {
-      "url": "blob:https://ktu.edu.in/d05883ca-c5f2-4ac2-80bf-67d5c0652c63",
+      "url": "blob:https://ktu.edu.in/b687b6b9-6369-4e3a-9e9d-c48eaed2cb2f",
       "name": "b.tech s4 honours",
       "hash": "32d292c8abcedc412018801559650b4b"
     },
     {
-      "url": "blob:https://ktu.edu.in/350badfe-1753-4a1c-a764-13e82eee2a0b",
+      "url": "blob:https://ktu.edu.in/127d64b4-5b46-44bd-ad78-2d6952b5ba6d",
       "name": "b.tech s6 minor",
       "hash": "0b8194c171399c4df48e5136985389ab"
     },
     {
-      "url": "blob:https://ktu.edu.in/d96b9cbf-2282-4e59-9e02-e7f1e35de087",
+      "url": "blob:https://ktu.edu.in/45c71310-3c56-4b0d-91f2-608af2788fc9",
       "name": "b.tech s6 honours",
       "hash": "cc7c9be35fb5a77ee53689902be49c2e"
     },
     {
-      "url": "blob:https://ktu.edu.in/4bdd713b-99ee-44f5-9042-5e1721b1f194",
+      "url": "blob:https://ktu.edu.in/a58afa26-9a64-45ac-ac76-b9ff2a6f1edd",
       "name": "timetable of b.tech s2 challenge course",
       "hash": "e4352a903ee95e9e3f2592730ea879f8"
     },
     {
-      "url": "blob:https://ktu.edu.in/f44717e0-e876-4aa7-b920-fa311ad8f55d",
+      "url": "blob:https://ktu.edu.in/3f46e0ca-ccd3-462f-bae7-204ac104e550",
       "name": "b.tech s3 (2024 scheme)",
       "hash": "10bfdd669755525dcde998c49d1ff582"
     },
     {
-      "url": "blob:https://ktu.edu.in/24c4e941-0b09-4b85-b35b-2ceb8f76ec49",
+      "url": "blob:https://ktu.edu.in/19cf18eb-7ca9-45c3-a7af-403c5c3fe7fa",
       "name": "b.tech s1 (2024 scheme)",
       "hash": "06d111322ff0142048b5e65024a08d37"
     },
     {
-      "url": "blob:https://ktu.edu.in/c8944c52-5756-4d04-94c1-8b92fbe6a8bc",
+      "url": "blob:https://ktu.edu.in/3715045c-bc68-42d3-8304-a7575655d093",
       "name": "b.tech S4 (2019 SCHEME) TIME TABLE",
       "hash": "182c27c1ccc15941eff90d641e186c19"
     },
     {
-      "url": "blob:https://ktu.edu.in/56c2d9db-c8c4-4249-b05e-c2db5eda8e1f",
+      "url": "blob:https://ktu.edu.in/a3b9f9e2-d5d3-4f1b-94b0-09f3d03e3c2d",
       "name": "timetable of b.tech S1 ,S2 (2019 SCHEME)",
       "hash": "10d7305ef8f70fac89b229fdb4f9f10d"
     },
     {
-      "url": "blob:https://ktu.edu.in/d786ad11-7542-4807-bb68-67ac0aaf2854",
+      "url": "blob:https://ktu.edu.in/f68c04de-f98b-45c9-b641-0924f38d9945",
       "name": "b.tech S3 (2019 SCHEME) TIME TABLE",
       "hash": "8e6860f8f0b81ebb4b7bc07b7fa5885f"
     },
     {
-      "url": "blob:https://ktu.edu.in/a7f600bf-538d-41ff-983b-7b5e03740f62",
+      "url": "blob:https://ktu.edu.in/4c7e6dca-225d-4f2e-89ef-44bb05fca509",
       "name": "b.tech s1 part time (2019 scheme)",
       "hash": "9e0160077bf67b869804f96ed08887fe"
     },
     {
-      "url": "blob:https://ktu.edu.in/8b877cf2-ad12-403f-bb4b-3b88cb6518b1",
+      "url": "blob:https://ktu.edu.in/587dcf83-83fb-40d7-927d-af0b7270ce0f",
       "name": "b.tech s2 part time (2019 scheme)",
       "hash": "2a37b63ab837415abd23e7efb1ea08e1"
     },
     {
-      "url": "blob:https://ktu.edu.in/7f89d44e-c660-450d-8f4b-cb688cc91f4c",
+      "url": "blob:https://ktu.edu.in/65d32da8-c944-46e9-9b9a-717f789d206c",
       "name": "comprehensive course work",
       "hash": "78a771f6192cde13c57f2eb56619c272"
     },
     {
-      "url": "blob:https://ktu.edu.in/7ecfd1b1-cf9c-4ea8-b282-b17f5f914614",
+      "url": "blob:https://ktu.edu.in/aab40837-d26f-43f4-a56a-4b7b45b20f2f",
       "name": "postponement of b.tech s3 & s6 (2015 sch)",
       "hash": "571bc1d07069d445cfd344e30da42393"
     },
     {
-      "url": "blob:https://ktu.edu.in/90d3f1e8-0f47-45fd-8366-a9bd8054636f",
+      "url": "blob:https://ktu.edu.in/a6b3fb5b-0e30-4707-ad86-8c65fbef0390",
       "name": "timetable of b.tech s7 (2019 scheme)",
       "hash": "95efdd84c38e97aa6f00e38c1dbfebd1"
     },
     {
-      "url": "blob:https://ktu.edu.in/42c8c8c6-3cc8-48c1-88b2-a2a07f0d4dae",
+      "url": "blob:https://ktu.edu.in/b12ebcbe-340a-446a-b1d9-4dfc0ce9f536",
       "name": "B.TECH S6 CHANGE IN TIMING A SLOT",
       "hash": "8b1a0383b5abd1f912613d008d18abff"
     },
     {
-      "url": "blob:https://ktu.edu.in/ddf460b7-1471-4cb9-b797-fcf20dce2a80",
+      "url": "blob:https://ktu.edu.in/480310bd-0adc-4987-b911-e019169035e5",
       "name": "rescheduling of slot A OF B.TECH S6",
       "hash": "4caf68ca5232e54c03dfcd6917f5f6ef"
     },
     {
-      "url": "blob:https://ktu.edu.in/2c7c4be2-70d3-4d94-9039-d64606f99f4d",
+      "url": "blob:https://ktu.edu.in/15014e70-1f5b-4f40-a054-220d27b302d0",
       "name": "B.TECH S4 MAY 2026 (2019 SCH) INCLUDING WP",
       "hash": "086981756c8003f16c834271341b70d5"
     },
     {
-      "url": "blob:https://ktu.edu.in/db39df66-b29e-4a60-a588-4db5b081b33f",
+      "url": "blob:https://ktu.edu.in/a50cd168-c4c2-44d1-8105-c756520232f9",
       "name": "b.tech s4 PARTIME (2019 SCHEME)",
       "hash": "4064d006d07be8f444f5d2ab15283cc6"
     },
     {
-      "url": "blob:https://ktu.edu.in/a578d659-221b-414b-82b5-dc33ca866668",
+      "url": "blob:https://ktu.edu.in/4b012bd4-07a7-4c3a-80ee-d9e15854e70c",
       "name": "Change in Examination Timing B.Tech S4 notification",
       "hash": "865f7e8264d7169594aeb21b64abd086"
     },
     {
-      "url": "blob:https://ktu.edu.in/0f029090-93c8-4620-89dd-863a9bbee3c8",
+      "url": "blob:https://ktu.edu.in/1af30b73-ef11-4f8d-9b03-1ec0164db8de",
       "name": "Timetable of B.Tech S6 pt (2019 scheme)",
       "hash": "9528ddb1de1fe91f993f386cf3f9f624"
     },
     {
-      "url": "blob:https://ktu.edu.in/8da895ba-39aa-4b6a-8516-35ef7b16e937",
+      "url": "blob:https://ktu.edu.in/cda5d5ff-c6bf-4356-88a7-cb8e8aabd4a6",
       "name": "timetable of b.tech pt s1- s7 (2015 scheme)",
       "hash": "2d132aaa54bafd107e3660e47b370ab8"
     },
     {
-      "url": "blob:https://ktu.edu.in/35aa4f19-c2b3-4b77-8f97-dff7eb71cb5b",
+      "url": "blob:https://ktu.edu.in/6852ff08-5651-4db0-846d-e0e03aa59a68",
       "name": "timetable of B.TECH S7 (2015 SCHEME)",
       "hash": "7c55b9f593c5eeb56ee37a88d8964b22"
     },
     {
-      "url": "blob:https://ktu.edu.in/45e229ea-3377-427b-b38b-6dff28af23c9",
+      "url": "blob:https://ktu.edu.in/abdbf388-e980-472c-9dd5-878d46589cfe",
       "name": "timetable of B.TECH S6 (2015 SCHEME)",
       "hash": "3e958cbdd6e6b9868f11f23e5366159a"
     },
     {
-      "url": "blob:https://ktu.edu.in/8cfb2188-4f73-49f9-98b6-68c4b9e25c17",
+      "url": "blob:https://ktu.edu.in/93b51082-3038-4d5a-b5c1-a2cdeb348cdb",
       "name": "timetable of B.TECH S3 (2015 SCHEME)",
       "hash": "49941265932f2b544bebbc6c3cbff326"
     },
     {
-      "url": "blob:https://ktu.edu.in/4b1692eb-cdfd-4cb7-b428-09df7b34a301",
+      "url": "blob:https://ktu.edu.in/2b61c268-df54-46b9-a5ab-dab087429018",
       "name": "timetable of B.TECH S8 INCL. PT (2015 SCHEME)",
       "hash": "b1df01aa9eb643296fe51e129870c601"
     },
     {
-      "url": "blob:https://ktu.edu.in/4af263b5-e030-4560-ae51-fd45b8399f20",
+      "url": "blob:https://ktu.edu.in/54bd6dde-6e93-4d07-8dad-98ecffb96de4",
       "name": "timetable of B.TECH S4 (2015 SCHEME)",
       "hash": "175acafc0b8e1ae6851f1d3a1a45ad86"
     },
     {
-      "url": "blob:https://ktu.edu.in/d0b237aa-4600-47e2-bf44-ca3df11f7313",
+      "url": "blob:https://ktu.edu.in/fc168cd5-ca47-4ccd-b364-c15816a0a630",
       "name": "Timetable of b.tech s5 APRIL 2026 (2015 scheme)",
       "hash": "f644cdb719355d670e0e40f911380449"
     },
     {
-      "url": "blob:https://ktu.edu.in/cfd92a39-71d0-45bb-af61-cc0311aa3a44",
+      "url": "blob:https://ktu.edu.in/0abe4d79-8759-4f60-8b63-7ee228fbeceb",
       "name": "Timetable of B.TECH S1,S2 (2015 SCHEME)",
       "hash": "44bf06b615049b7a952595bf07e25add"
     },
     {
-      "url": "blob:https://ktu.edu.in/626fa8f1-f569-4408-b7a1-4c3abebcf9dd",
+      "url": "blob:https://ktu.edu.in/b2b09e82-5a1d-4ed2-8e3e-9244d747ea20",
       "name": "UG CALENDAR (2015 SCHEME)",
       "hash": "e03fbe0e5292477517f7097268094748"
     },
     {
-      "url": "blob:https://ktu.edu.in/5be190bd-6b71-4bde-a084-2666abc3bb31",
+      "url": "blob:https://ktu.edu.in/73de41bc-16a8-4f18-a0a6-1fa0e72b31d9",
       "name": "BCA TIMETABLE",
       "hash": "29a72d52c96e4feeff190204e3a9ca39"
     },
     {
-      "url": "blob:https://ktu.edu.in/cc1a0c5b-d063-49b7-ba37-7cfeca0b3f39",
+      "url": "blob:https://ktu.edu.in/8ba8b252-65c7-472a-ae69-125a8d71b576",
       "name": "B.Tech S2 (R,S) APRIL 2026 (2024 SCHEME)",
       "hash": "10d3fb9d960b44dcd2a515d354064eec"
     },
     {
-      "url": "blob:https://ktu.edu.in/cd1ee33b-3225-4647-bfc6-2c3701f708e0",
+      "url": "blob:https://ktu.edu.in/cb192f6e-7a7d-4903-960a-05163981fbdc",
       "name": "B.tech S4 (R) April 2026 (2024 sch)",
       "hash": "c93c6eeac507de4c9cafbc0b189f8534"
     },
     {
-      "url": "blob:https://ktu.edu.in/9d627b70-f525-45cc-9af4-604913a7e59a",
+      "url": "blob:https://ktu.edu.in/f64285d9-7fcd-48ce-97c6-fc34ca539669",
       "name": "B.Tech S8 R,S APRIL 2026 INCL WP & PT (2019 SCHEME)",
       "hash": "987c3bef906629b6bbdb229a538f58c3"
     },
     {
-      "url": "blob:https://ktu.edu.in/c79934a4-deed-4229-aa99-2c4b3faa4acb",
+      "url": "blob:https://ktu.edu.in/a88dd4bf-56fb-454d-bb99-2f1ed00182dd",
       "name": "B.TECH S6 (R,S) APRIL 2026 (2019 SCHEME)",
       "hash": "fb471f165f9793f5d36b9daf7fe2493d"
     },
     {
-      "url": "blob:https://ktu.edu.in/029787b7-4b28-47a0-bc64-6e0828734b9d",
+      "url": "blob:https://ktu.edu.in/c828006f-a178-464c-a47a-1556f9f6e3d8",
       "name": "timetable of B.Tech S3 (Minor)",
       "hash": "52ad974ffa8d9cbb1f14f56fc8462d29"
     },
     {
-      "url": "blob:https://ktu.edu.in/1c6c6620-56ec-4211-b25d-97719be2d603",
+      "url": "blob:https://ktu.edu.in/fbe9b697-b2d0-40a7-9a26-13a460add25e",
       "name": "timetable of B.TECH S5 (MINOR)",
       "hash": "ea32effeb3abfdbc07de866fa0a56835"
     },
     {
-      "url": "blob:https://ktu.edu.in/f1a61bd1-661c-4c87-a884-d8d3b27f3a4b",
+      "url": "blob:https://ktu.edu.in/79fdd2ca-b4cc-44af-ba2c-e103f0d037fd",
       "name": "timetable of B.TECH S7 (MINOR)",
       "hash": "f35038e338e05d68f22747482469587e"
     },
     {
-      "url": "blob:https://ktu.edu.in/0e722051-646c-4d14-b4d9-dc2362e0ca13",
+      "url": "blob:https://ktu.edu.in/76344590-6140-4dad-aca5-9dcdb19db847",
       "name": "timetable of B.Tech S5 (HONOURS)",
       "hash": "5cc480b8696377bfd716b26c7a4c1a32"
     },
     {
-      "url": "blob:https://ktu.edu.in/cd258a35-082b-457a-a6ab-df7bfdcdbe4e",
+      "url": "blob:https://ktu.edu.in/a2e225eb-bc5e-4256-88bd-6b769b01f1c0",
       "name": "Timetable of B.TECH S7 (Honours)",
       "hash": "e69e88a7ebf2b2a47278576679e24440"
     },
     {
-      "url": "blob:https://ktu.edu.in/79fc3014-cb10-42a7-9865-2e96587662f4",
+      "url": "blob:https://ktu.edu.in/ab873894-9882-4e3e-83ba-7cb50069b828",
       "name": "timetable of BCA S2 (2024 SCH)",
       "hash": "5776124e5b4efc094f44b9df001bc911"
     }
